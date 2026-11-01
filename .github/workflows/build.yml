@@ -113,12 +113,16 @@ jobs:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
 
+      # Titled with the bare version, so v0.1.0 is released as 0.1.0.
+      - name: Name the release
+        run: echo "RELEASE_NAME=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
       # Created after publishing, so a release only exists for versions that are on Maven Central.
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
-          name: "Fast Compose ${{ github.ref_name }}"
+          name: ${{ env.RELEASE_NAME }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
