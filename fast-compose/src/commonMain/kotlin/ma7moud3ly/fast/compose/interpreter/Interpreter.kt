@@ -311,9 +311,10 @@ public class Interpreter(
         extension: Boolean,
         scope: FileScope
     ): FunDecl? {
-        val candidates =
-            scope.functions[name]?.filter { (it.receiver != null) == extension } ?: return null
-        return candidates.firstOrNull { accepts(it.params, args) } ?: candidates.firstOrNull()
+        val all = scope.functions[name]?.filter { (it.receiver != null) == extension } ?: return null
+        // With both an expect and its actual loaded, the actual (with a body) runs.
+        val candidates = all.filter { !it.isExpect }.ifEmpty { all }
+        return candidates.firstOrNull { accepts(paramsOf(it), args) } ?: candidates.firstOrNull()
     }
 
     private fun accepts(params: List<Param>, args: CallArgs): Boolean {
@@ -330,7 +331,8 @@ public class Interpreter(
         params: List<Param>,
         args: CallArgs,
         env: Env,
-        owner: String
+        owner: String,
+        lenient: Boolean = false,
     ): List<Param> {
         val missing = mutableListOf<Param>()
         var next = 0
@@ -355,6 +357,8 @@ public class Interpreter(
                 }
 
                 p.default != null -> missing += p
+                // An actual function whose expect (with the default values) is not loaded: the empty value is used.
+                lenient -> env.define(p.name, emptyDefault(p, "it is on the expect declaration of '$owner', which is not loaded"), mutable = false)
                 else -> throw InterpreterException("No value passed for parameter '${p.name}' of '$owner'")
             }
         }
@@ -424,6 +428,28 @@ public class Interpreter(
         else -> mutableListOf<Any?>()
     }
 
+    /**
+     * Parameters of [decl]; for an `actual fun`, with the default values of its `expect` declaration, where Kotlin
+     * writes them.
+     */
+    private fun paramsOf(decl: FunDecl): List<Param> {
+        if (!decl.isActual) return decl.params
+        val expect = expectOf(decl) ?: return decl.params
+        return decl.params.mapIndexed { i, param ->
+            if (param.default != null) param else param.copy(default = expect.params.getOrNull(i)?.default)
+        }
+    }
+
+    /** Expect declarations of actual functions, by the actual's id and span; null when none is loaded. */
+    private val expects = mutableMapOf<Pair<Int, Span>, FunDecl?>()
+
+    private fun expectOf(decl: FunDecl): FunDecl? = expects.getOrPut(decl.id to decl.span) {
+        val packageName = scopeOf(decl).program.packageName
+        scopes.filter { it.program.packageName == packageName }
+            .flatMap { it.program.declarations.filterIsInstance<FunDecl>() }
+            .firstOrNull { it.isExpect && it.name == decl.name && it.params.size == decl.params.size }
+    }
+
     private fun functionResult(result: Any?): Any? = when {
         result is Jump && result.kind == Jump.Kind.RETURN -> result.value
         result is Jump -> throw InterpreterException("'break' and 'continue' are only allowed inside a loop")
@@ -435,7 +461,7 @@ public class Interpreter(
         enter(decl.name)
         try {
             val env = (closure ?: scopeOf(decl).root).child(receiver)
-            for (p in bindParams(decl.params, args, env, decl.name)) {
+            for (p in bindParams(paramsOf(decl), args, env, decl.name, decl.isActual)) {
                 val default = p.default ?: continue
                 env.define(p.name, defaultValue(p, default, env), mutable = false)
             }
@@ -480,7 +506,7 @@ public class Interpreter(
         val body = decl.body ?: return showIfError(guard { callWithoutBody(decl) })
         if (depth >= MAX_DEPTH) return showIfError(fail("Stack overflow in '${decl.name}'"))
         val env = (closure ?: scopeOf(decl).root).child(receiver)
-        val missing = guard { bindParams(decl.params, args, env, decl.name) }
+        val missing = guard { bindParams(paramsOf(decl), args, env, decl.name, decl.isActual) }
         if (missing is ErrorValue) return showIfError(missing)
         for (p in missing as List<*>) {
             p as Param
@@ -833,7 +859,7 @@ public class Interpreter(
 
     private fun resolveMemberCall(receiver: Any?, name: String, args: CallArgs, env: Env): Target? {
         when (receiver) {
-            is StandIn -> return Target.Done(StandIn("${receiver.name}.$name"))
+            is StandIn -> return Target.Done(if (name == "not") true else StandIn("${receiver.name}.$name"))
             is UserValue -> {
                 findMethod(receiver.decl, name, args)?.let {
                     return Target.UserFunction(
@@ -2316,7 +2342,8 @@ public class Interpreter(
     }
 
     private fun unaryValue(op: String, operand: Any?): Any? = if (operand is StandIn && op != "!!") {
-        operand
+        // A stand-in condition is false, so its negation is true and an if/else-if pair shows exactly one side.
+        if (op == "!") true else operand
     } else when (op) {
         "-" -> Operators.negate(operand).let {
             if (it !== Unresolved) it else callMember(
@@ -2385,7 +2412,7 @@ public class Interpreter(
         if (!decl.isSuspend) return callFunction(decl, receiver, args, closure)
         val body = decl.body ?: return callWithoutBody(decl)
         val env = (closure ?: scopeOf(decl).root).child(receiver)
-        for (p in bindParams(decl.params, args, env, decl.name)) {
+        for (p in bindParams(paramsOf(decl), args, env, decl.name, decl.isActual)) {
             val default = p.default ?: continue
             val value = try {
                 evalS(default, env)

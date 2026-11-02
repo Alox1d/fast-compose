@@ -160,6 +160,8 @@ public class Parser(private val tokens: List<Token>) {
             id(), spanFrom(start), name, modifiers.annotations, receiver, params, returnType, body,
             isSuspend = "suspend" in modifiers.words,
             isPrivate = "private" in modifiers.words,
+            isExpect = "expect" in modifiers.words,
+            isActual = "actual" in modifiers.words,
         )
     }
 
@@ -390,7 +392,18 @@ public class Parser(private val tokens: List<Token>) {
         val entries = mutableListOf<EnumEntry>()
         try {
             skipSeparators()
-            while (at(IDENTIFIER) && peekAfter().type in setOf(COMMA, SEMICOLON, LPAREN, RBRACE, NEWLINE)) {
+            while (true) {
+                // An entry may have annotations, e.g. `@SerialName("busy") Busy`; if no entry follows, they belong to
+                // the next member and are left for it.
+                val beforeAnnotations = pos
+                while (at(AT)) {
+                    parseAnnotation()
+                    skipNewlines()
+                }
+                if (!at(IDENTIFIER) || peekAfter().type !in setOf(COMMA, SEMICOLON, LPAREN, RBRACE, NEWLINE)) {
+                    pos = beforeAnnotations
+                    break
+                }
                 val name = advance().value
                 val args = if (at(LPAREN)) parseCallArgs() else emptyList()
                 entries += EnumEntry(name, args)

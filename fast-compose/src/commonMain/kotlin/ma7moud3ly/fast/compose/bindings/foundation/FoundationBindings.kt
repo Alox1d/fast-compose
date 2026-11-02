@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -297,8 +298,13 @@ private fun Registry.modifiers() {
     member<Modifier>("fillMaxHeight(fraction)") { m, a -> m.fillMaxHeight(a.float("fraction", 1f)) }
     member<Modifier>("size(size)") { m, a -> m.size(a.dp("size")) }
     member<Modifier>("size(width, height)") { m, a -> m.size(a.dp("width"), a.dp("height")) }
-    member<Modifier>("width(width)") { m, a -> m.width(a.dp("width")) }
-    member<Modifier>("height(height)") { m, a -> m.height(a.dp("height")) }
+    // `width(IntrinsicSize.Min)` and `height(IntrinsicSize.Max)` share these bindings; the argument decides.
+    member<Modifier>("width(width)") { m, a ->
+        (a["width"] as? IntrinsicSize)?.let { m.width(it) } ?: m.width(a.dp("width"))
+    }
+    member<Modifier>("height(height)") { m, a ->
+        (a["height"] as? IntrinsicSize)?.let { m.height(it) } ?: m.height(a.dp("height"))
+    }
     member<Modifier>("offset(x: Dp, y: Dp)") { m, a -> m.offset(a.dp("x", 0.dp), a.dp("y", 0.dp)) }
     member<Modifier>("offset(offset: Density.() -> IntOffset)") { m, a ->
         val position = a.scopedCalculation<Density>("offset")

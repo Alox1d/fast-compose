@@ -1,5 +1,6 @@
 package ma7moud3ly.fast.compose.bindings.resources
 
+import androidx.compose.ui.graphics.Color
 import ma7moud3ly.fast.compose.interpreter.Interpreter
 import ma7moud3ly.fast.compose.interpreter.Registry
 import ma7moud3ly.fast.compose.parser.KotlinParser
@@ -31,6 +32,30 @@ class ResourcesTest {
             mapOf("title" to "Hello, %1\$s!", "quote" to "\"Hi\" it's & me", "styled" to "Tap here", "empty" to ""),
             StringsXml.parse(xml),
         )
+    }
+
+    @Test
+    fun colorReferences() {
+        val colors = ColorsXml.parse(
+            """
+            <resources>
+                <!-- <color name="old">#000</color> -->
+                <color name="purple">#FF6200EE</color>
+                <color name="primary">@color/purple</color>
+            </resources>
+            """,
+        )
+        assertEquals(mapOf("purple" to "#FF6200EE", "primary" to "@color/purple"), colors)
+        val vector = """<path android:fillColor="@color/primary" android:strokeColor="@android:color/white"
+            android:tint="?attr/colorControlNormal" android:pathData="M0,0"/>"""
+        assertEquals(
+            """<path android:fillColor="#FF6200EE" android:strokeColor="#FFFFFFFF"
+            android:tint="#FF000000" android:pathData="M0,0"/>""",
+            resolveColorReferences(vector, colors),
+        )
+        assertEquals(Color(0xFF6200EE), parseColor("#6200EE"))
+        assertEquals(Color(0xFFFF0000), parseColor("#F00"))
+        assertNull(parseColor("@color/purple"))
     }
 
     @Test

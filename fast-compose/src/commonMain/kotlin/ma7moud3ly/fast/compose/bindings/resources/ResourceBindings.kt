@@ -35,7 +35,7 @@ private class ResourceType(val type: String)
 
 /**
  * Resources from `R` (Android) and `Res` (Compose Multiplatform): `painterResource`, `vectorResource`,
- * `imageResource` and `stringResource`. Files and strings come from [LocalResourceProvider], in the variant that fits
+ * `imageResource`, `stringResource` and `colorResource`. Files, strings and colors come from [LocalResourceProvider], in the variant that fits
  * [LocalResourceEnvironment] and the current density; missing images draw a placeholder and missing strings show their name.
  */
 public object ResourceBindings : BindingPack {
@@ -60,6 +60,19 @@ private fun Registry.resources() {
         val image = image(a)
         if (image != null && image !is ImageBitmap) a.report("imageResource needs a PNG, JPEG, WebP or BMP file, found a vector drawable")
         image as? ImageBitmap
+    }
+    composable("colorResource(id)") { a ->
+        val ref = a.resourceRef()
+        val environment = resourceEnvironment()
+        val provider = LocalResourceProvider.current
+        val colors = colorsOf(provider, environment)
+        val value = ref?.let { colors[it.name]?.let { raw -> resolveColor(raw, colors) } }
+        when {
+            ref == null -> Color.Unspecified.also { a.report("colorResource needs a resource such as R.color.primary") }
+            value == null && provider.isLoading("values", "colors", environment) -> Color.Unspecified
+            value == null -> Color.Unspecified.also { a.warn("Color resource '${ref.name}' not found") }
+            else -> parseColor(value) ?: Color.Unspecified.also { a.warn("Invalid color '$value' for '${ref.name}'") }
+        }
     }
     composable("stringResource(id, vararg formatArgs, *, resource)") { a ->
         val ref = a.resourceRef()
@@ -94,12 +107,14 @@ private fun image(a: Args): Any? {
     val environment = resourceEnvironment()
     val bytes = ref?.let { provider.bytes(it.type, it.name, environment) }
     val loading = ref != null && bytes == null && provider.isLoading(ref.type, ref.name, environment)
-    val result = remember(ref, bytes, density, loading) {
+    // Vector drawables may use `@color/…` from colors.xml; decoded again once it is read.
+    val colors = colorsOf(provider, environment)
+    val result = remember(ref, bytes, density, loading, colors) {
         when {
             ref == null -> Result.failure(IllegalArgumentException("${a.signature.name} needs a resource such as R.drawable.logo or Res.drawable.logo"))
             loading -> Result.failure(StillLoading)
             bytes == null -> Result.failure(NoSuchElementException("Resource '$ref' not found; showing a placeholder"))
-            else -> decode(bytes, density)
+            else -> decode(bytes, density, colors)
         }
     }
     when (val error = result.exceptionOrNull()) {
@@ -110,14 +125,38 @@ private fun image(a: Args): Any? {
     return result.getOrNull()
 }
 
+/** Colors of the `colors.xml` matching [environment], by name; empty while it is read or when there is none. */
+@Composable
+private fun colorsOf(provider: ResourceProvider, environment: ResourceEnvironment): Map<String, String> {
+    val bytes = provider.bytes("values", "colors", environment)
+    return remember(bytes) { bytes?.let { ColorsXml.parse(it.decodeToString()) } ?: emptyMap() }
+}
+
+/** A color written as `#RGB`, `#ARGB`, `#RRGGBB` or `#AARRGGBB`; null if it is not one. */
+internal fun parseColor(value: String): Color? {
+    val hex = value.removePrefix("#")
+    val full = when (hex.length) {
+        3 -> "FF" + hex.map { "$it$it" }.joinToString("")
+        4 -> hex.map { "$it$it" }.joinToString("")
+        6 -> "FF$hex"
+        8 -> hex
+        else -> return null
+    }
+    return full.toLongOrNull(16)?.let { Color(it) }
+}
+
 /** Marks a resource that is still being read; it shows a placeholder without a warning. */
 private object StillLoading : Exception()
 
-/** Decodes vector drawable XML to an [ImageVector] and PNG, JPEG, WebP or BMP files to an [ImageBitmap]. */
-private fun decode(bytes: ByteArray, density: Density): Result<Any> = runCatching {
+/**
+ * Decodes vector drawable XML to an [ImageVector] and PNG, JPEG, WebP or BMP files to an [ImageBitmap]. Color
+ * references in vectors (`@android:color/…`, `@color/…` from [colors], `?attr/…`) are replaced by literal colors first.
+ */
+private fun decode(bytes: ByteArray, density: Density, colors: Map<String, String>): Result<Any> = runCatching {
     val head = bytes.decodeToString(0, minOf(bytes.size, 512))
     when {
-        "<vector" in head -> bytes.decodeToImageVector(density)
+        "<vector" in head -> resolveColorReferences(bytes.decodeToString(), colors).encodeToByteArray()
+            .decodeToImageVector(density)
         "<svg" in head -> throw UnsupportedOperationException("SVG images are not supported yet")
         else -> bytes.decodeToImageBitmap()
     }

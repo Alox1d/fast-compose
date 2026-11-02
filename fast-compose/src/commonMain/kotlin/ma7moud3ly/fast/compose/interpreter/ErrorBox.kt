@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 
 /** Inline marker for a runtime error, shown where the failing code would render. */
 @Composable
@@ -16,6 +17,7 @@ public fun ErrorBox(message: String) {
     BasicText(
         text = "⚠ $message",
         style = TextStyle(color = Color(0xFFB00020), fontSize = 12.sp),
-        modifier = Modifier.background(Color(0x1FB00020)).padding(4.dp),
+        // Drawn above later siblings, e.g. a full-size Scaffold composed after the error in the same Box.
+        modifier = Modifier.zIndex(1f).background(Color(0x1FB00020)).padding(4.dp),
     )
 }

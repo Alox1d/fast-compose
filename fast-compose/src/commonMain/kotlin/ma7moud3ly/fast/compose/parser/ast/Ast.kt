@@ -85,6 +85,10 @@ public data class FunDecl(
     val body: Block?,
     val isSuspend: Boolean = false,
     val isPrivate: Boolean = false,
+    /** `expect fun`: a declaration without a body whose `actual` is in a platform source set. */
+    val isExpect: Boolean = false,
+    /** `actual fun`: the platform body of an `expect fun`, which holds the default values of its parameters. */
+    val isActual: Boolean = false,
 ) : Decl {
     public fun hasAnnotation(name: String): Boolean = annotations.any { it.name == name }
 }

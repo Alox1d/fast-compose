@@ -297,4 +297,39 @@ class MultiFileTest {
         // `user.name` on an Int is a missing member, reported where it is used: line 5 of Cards.kt.
         assertTrue(errors.first().toString().startsWith("Cards.kt:5:"), errors.toString())
     }
+
+    @Test
+    fun actualFunctionsUseTheDefaultsOfTheirExpect() = runTest {
+        val expect = SourceFile(
+            "common/Back.kt",
+            "package app.ui\n\nexpect fun back(enabled: Boolean = true, label: String = \"back\"): String",
+        )
+        val actual = SourceFile(
+            "android/Back.android.kt",
+            "package app.ui\n\nactual fun back(enabled: Boolean, label: String): String = label + \" \" + enabled",
+        )
+        val main = program(
+            """
+            package app
+
+            import app.ui.back
+
+            fun test() = back(label = "up")
+            """,
+        )
+
+        val withExpect = object : SourceProvider {
+            override suspend fun find(packageName: String, name: String) = actual
+            override suspend fun findExpect(packageName: String, name: String) = expect
+        }
+        val loaded = SourceLoader(withExpect).load(main)
+        assertEquals("up true", Interpreter(main, Registry(), dependencies = loaded.dependencies).call("test"))
+
+        // Without the expect, missing arguments get empty values with a warning.
+        val errors = mutableListOf<RuntimeError>()
+        val alone = SourceLoader(SourceProvider { _, _ -> actual }).load(main)
+        val result = Interpreter(main, Registry(), dependencies = alone.dependencies, onError = { errors += it }).call("test")
+        assertEquals("up false", result)
+        assertTrue(errors.single().isWarning, errors.toString())
+    }
 }

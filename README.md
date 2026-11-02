@@ -191,7 +191,7 @@ flowchart BT
 | `bindings.foundation` | Layouts, text, state, modifiers, drawing, effects, gestures, animation |
 | `bindings.material3` | Material 3 components, theming and defaults |
 | `bindings.icons` | Material icons (`Icons.Default.*`, `Icons.Filled.*`, `Icons.Outlined.*`, `Icons.AutoMirrored.*`) |
-| `bindings.resources` | `R`/`Res`, `painterResource`, `stringResource`, resource providers |
+| `bindings.resources` | `R`/`Res`, `painterResource`, `stringResource`, `colorResource`, resource providers |
 | `bindings.coil` | Network images: Coil `AsyncImage` and `rememberAsyncImagePainter` |
 | `ui` | `FastComposePreview`, `BasicComposePreview`, `FastComposeContent`, `FastComposeLogs`, presets |
 

@@ -24,6 +24,13 @@ public fun interface SourceProvider {
      * the project's, except [SourceLoader.DEFAULT_LIBRARY_PACKAGES].
      */
     public suspend fun isProjectPackage(packageName: String): Boolean = true
+
+    /**
+     * The file in package [packageName] with the `expect` declaration of [name], when [find] gave its `actual`; null
+     * if unknown. Default values of an `expect fun` are written only on the `expect`, so calls that rely on them need
+     * it.
+     */
+    public suspend fun findExpect(packageName: String, name: String): SourceFile? = null
 }
 
 /** A name imported from a project package that no file declares; [file] is the path of the file that imports it. */
@@ -83,6 +90,19 @@ public class SourceLoader(
         reach(main, main.declarations)
         while (queue.isNotEmpty()) {
             val (program, decl) = queue.removeFirst()
+            if (decl is FunDecl && decl.isActual) {
+                // The defaults of an actual function's parameters are on its expect declaration.
+                val file = provider.findExpect(program.packageName, decl.name)
+                if (file != null && file.path != program.path && file.path != main.path) {
+                    val expect = found[file.path] ?: run {
+                        val (fileProgram, errors) = parse(file)
+                        found[file.path] = fileProgram
+                        if (errors.isNotEmpty()) diagnostics[file.path] = errors
+                        fileProgram
+                    }
+                    reach(expect, expect.declarations.filter { it is FunDecl && it.isExpect && it.name == decl.name })
+                }
+            }
             for (name in namesToFind(program, decl)) {
                 val own = program.declarations.filter { nameOf(it) == name }
                 if (own.isNotEmpty()) {

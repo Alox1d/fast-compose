@@ -311,6 +311,23 @@ class ParserTest {
     }
 
     @Test
+    fun annotatedEnumEntries() {
+        val code = """
+            enum class Status(val label: String) {
+                @SerialName("available") Available("A"),
+                @SerialName("busy")
+                Busy("B");
+
+                @Deprecated("old")
+                fun short() = label
+            }
+        """.trimIndent()
+        val cls = assertIs<ClassDecl>(parse(code).declarations.single())
+        assertEquals(listOf("Available", "Busy"), cls.enumEntries.map { it.name })
+        assertEquals(listOf("short"), cls.members.filterIsInstance<FunDecl>().map { it.name })
+    }
+
+    @Test
     fun statementErrorRecovers() {
         val result = KotlinParser.parse("fun A() {\n    val = 1\n    Text(\"ok\")\n}")
         assertEquals(1, result.diagnostics.size)

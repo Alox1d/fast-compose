@@ -1,5 +1,6 @@
 package ma7moud3ly.fast.compose.bindings.foundation
 
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.ProvidedValue
@@ -39,6 +40,22 @@ class FoundationBindingsTest {
             }
         """.trimIndent()
         assertEquals("Hi there", run(code))
+    }
+
+    @Test
+    fun intrinsicSizes() {
+        val problems = mutableListOf<RuntimeError>()
+        val code = """
+            fun test(): List<Any> {
+                val m = Modifier.height(IntrinsicSize.Min).width(IntrinsicSize.Max)
+                    .requiredHeight(IntrinsicSize.Max).requiredWidth(IntrinsicSize.Min)
+                return listOf(IntrinsicSize.Min, IntrinsicSize.Max, m != Modifier)
+            }
+        """.trimIndent()
+        val program = KotlinParser.parse(code).program
+        val result = Interpreter(program, registry, onError = { problems += it }).call("test")
+        assertEquals(listOf(IntrinsicSize.Min, IntrinsicSize.Max, true), result)
+        assertEquals(emptyList(), problems)
     }
 
     @Test

@@ -292,6 +292,23 @@ class InterpreterTest {
     }
 
     @Test
+    fun negatedStandInsAreTrue() {
+        val (result, _) = runWithProblems(
+            """
+            import io.lib.Theme
+
+            fun test(): String {
+                val t = Theme()
+                val a = if (t.dark) "dark" else if (!t.dark) "light" else "none"
+                val b = if (t.dark.not()) "on" else "off"
+                return a + "|" + b
+            }
+            """,
+        )
+        assertEquals("light|on", result)
+    }
+
+    @Test
     fun missingMembersRunAsStandIns() {
         val (result, problems) = runWithProblems(
             """
