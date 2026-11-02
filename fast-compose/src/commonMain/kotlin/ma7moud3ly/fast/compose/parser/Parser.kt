@@ -184,22 +184,79 @@ public class Parser(private val tokens: List<Token>) {
         return PropertyDecl(id(), spanFrom(start), name, isVar, type, initializer, delegate, receiver, getter)
     }
 
-    /** Parses optional `get()` / `set(value)` accessors; returns the getter body. Setters are parsed and dropped. */
+    /**
+     * Parses optional `get()` / `set(value)` accessors, which may start with annotations and modifiers, e.g.
+     * `@Composable get() = …` or `private set`. Returns the getter body; setters and accessors without a body are
+     * parsed and dropped.
+     */
     private fun parseAccessors(): Block? {
         var getter: Block? = null
         while (true) {
-            val i = indexOfNextNonNewline()
-            val word = tokens[i]
-            if (word.type != IDENTIFIER || (word.text != "get" && word.text != "set") || tokens[i + 1].type != LPAREN) return getter
-            val afterParens = tokens.drop(i + 2).indexOfFirst { it.type == RPAREN }.let { if (it < 0) return getter else i + 3 + it }
-            if (tokens[afterParens].type !in setOf(ASSIGN, LBRACE, COLON)) return getter
+            val word = accessorAt(indexOfNextNonNewline()) ?: return getter
             skipNewlines()
+            while (pos < word) {
+                if (tokens[pos].type == AT) parseAnnotation() else advance()
+                skipNewlines()
+            }
             val isGetter = advance().text == "get"
+            if (tokens[pos].type != LPAREN) continue
             parseParams()
             if (match(COLON)) parseType()
             val body = if (match(ASSIGN)) expressionBody() else parseBlock()
             if (isGetter) getter = body
         }
+    }
+
+    /**
+     * Index of the `get` or `set` of an accessor starting at [start], after its annotations and modifiers, or null if
+     * no accessor starts there. An accessor without parameters, such as `private set`, needs an annotation or a
+     * modifier, so a plain `get` or `set` on the next line stays an expression.
+     */
+    private fun accessorAt(start: Int): Int? {
+        var i = start
+        while (true) {
+            val t = tokens[i]
+            i = when {
+                t.type == NEWLINE -> i + 1
+                t.type == AT -> annotationEnd(i) ?: return null
+                t.type == IDENTIFIER && t.text in accessorModifiers -> i + 1
+                else -> break
+            }
+        }
+        val word = tokens[i]
+        if (word.type != IDENTIFIER || (word.text != "get" && word.text != "set")) return null
+        val next = tokens[i + 1]
+        if (next.type == LPAREN) {
+            val afterParens = parensEnd(i + 1) ?: return null
+            return if (tokens[afterParens].type in setOf(ASSIGN, LBRACE, COLON)) i else null
+        }
+        val hasPrefix = (start until i).any { tokens[it].type != NEWLINE }
+        return if (hasPrefix && next.type in setOf(NEWLINE, SEMICOLON, RBRACE, EOF)) i else null
+    }
+
+    /** Index right after the annotation starting with the `@` at [at], or null if none starts there. */
+    private fun annotationEnd(at: Int): Int? {
+        var i = at + 1
+        if (tokens[i].type == IDENTIFIER && tokens[i + 1].type == COLON) i += 2 // use-site target
+        if (tokens[i].type != IDENTIFIER) return null
+        i++
+        while (tokens[i].type == DOT && tokens[i + 1].type == IDENTIFIER) i += 2
+        if (tokens[i].type == LPAREN && tokens[i].start == tokens[i - 1].end) return parensEnd(i)
+        return i
+    }
+
+    /** Index right after the `)` that closes the `(` at [open], or null if it is never closed. */
+    private fun parensEnd(open: Int): Int? {
+        var depth = 0
+        for (i in open until tokens.size) {
+            when (tokens[i].type) {
+                LPAREN -> depth++
+                RPAREN -> if (--depth == 0) return i + 1
+                EOF -> return null
+                else -> Unit
+            }
+        }
+        return null
     }
 
     /** Parses `Name` or `Receiver.Name` (receiver may have type arguments or `?`). */
@@ -962,10 +1019,15 @@ public class Parser(private val tokens: List<Token>) {
 
     private fun parseWhen(): WhenExpr {
         val start = expect(WHEN, "'when'")
+        var subjectName: String? = null
         val subject = if (at(LPAREN)) {
             inParens {
                 advance()
-                if (at(VAL)) throw error("'val' in when subject is not supported")
+                if (match(VAL)) {
+                    subjectName = expect(IDENTIFIER, "a name").value
+                    if (match(COLON)) parseType()
+                    expect(ASSIGN, "'='")
+                }
                 val e = parseExpression()
                 expect(RPAREN, "')'")
                 e
@@ -988,8 +1050,9 @@ public class Parser(private val tokens: List<Token>) {
                             conditions += parseWhenCondition()
                         } while (match(COMMA))
                     }
+                    val guard = if (match(IF)) parseExpression() else null
                     expect(ARROW, "'->'")
-                    branches += WhenBranch(conditions, parseControlBody())
+                    branches += WhenBranch(conditions, parseControlBody(), guard)
                 } catch (_: ParseException) {
                     // Already reported as a diagnostic; parsing resumes at the next statement.
                     syncStatement()
@@ -997,7 +1060,7 @@ public class Parser(private val tokens: List<Token>) {
             }
             expect(RBRACE, "'}'")
         }
-        return WhenExpr(id(), spanFrom(start), subject, branches)
+        return WhenExpr(id(), spanFrom(start), subject, branches, subjectName)
     }
 
     private fun parseWhenCondition(): WhenCondition {
@@ -1159,6 +1222,8 @@ public class Parser(private val tokens: List<Token>) {
     }
 
     private companion object {
+        /** Modifiers that may come before a property accessor. */
+        val accessorModifiers = setOf("private", "public", "internal", "protected", "inline", "external")
         val modifierWords = setOf(
             "private", "public", "internal", "protected", "override", "open", "abstract", "sealed", "final",
             "inline", "noinline", "crossinline", "suspend", "operator", "infix", "const", "lateinit", "tailrec",

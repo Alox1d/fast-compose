@@ -131,7 +131,9 @@ private class ReferenceWalker {
             }
             is WhenExpr -> {
                 e.subject?.let(::expr)
+                e.subjectName?.let { declared += it }
                 e.branches.forEach { branch ->
+                    branch.guard?.let(::expr)
                     branch.conditions.forEach { condition ->
                         when (condition) {
                             is WhenCondition.Value -> expr(condition.expr)

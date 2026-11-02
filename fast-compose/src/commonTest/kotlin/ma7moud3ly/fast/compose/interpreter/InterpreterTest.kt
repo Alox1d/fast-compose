@@ -134,6 +134,74 @@ class InterpreterTest {
     }
 
     @Test
+    fun accessorsWithAnnotationsAndModifiers() {
+        val code = """
+            class Store {
+                var count = 0
+                    private set
+                fun inc() {
+                    count++
+                }
+                val doubled: Int
+                    @Suppress("unused") get() = count * 2
+            }
+
+            fun test(): Int {
+                val s = Store()
+                s.inc()
+                return s.doubled
+            }
+        """.trimIndent()
+        assertEquals(2, run(code))
+    }
+
+    @Test
+    fun whenGuards() {
+        val code = """
+            fun label(n: Int) = when (n) {
+                0 -> "zero"
+                in 1..9 if n % 2 == 0 -> "small even"
+                in 1..9 -> "small odd"
+                else if n < 0 -> "negative"
+                else -> "big"
+            }
+
+            fun test() = label(0) + "," + label(4) + "," + label(3) + "," + label(-5) + "," + label(50)
+        """.trimIndent()
+        assertEquals("zero,small even,small odd,negative,big", run(code))
+    }
+
+    @Test
+    fun whenSubjectName() {
+        val code = """
+            fun describe(x: Int) = when (val half = x / 2) {
+                0 -> "none"
+                in 1..3 if half != 2 -> "few ${'$'}half"
+                in 1..3 -> "two"
+                else -> "many ${'$'}half"
+            }
+
+            fun test() = describe(1) + "|" + describe(2) + "|" + describe(5) + "|" + describe(40)
+        """.trimIndent()
+        assertEquals("none|few 1|two|many 20", run(code))
+    }
+
+    @Test
+    fun whenGuardsAndSubjectNameInSuspendCode() = runTest {
+        val code = """
+            suspend fun test(): String {
+                delay(1)
+                return when (val n = 7) {
+                    in 0..5 -> "low"
+                    in 6..9 if n % 2 == 1 -> "odd ${'$'}n"
+                    else -> "other"
+                }
+            }
+        """.trimIndent()
+        assertEquals("odd 7", interpreter(code, delayRegistry).callSuspend("test"))
+    }
+
+    @Test
     fun enumClass() {
         val code = """
             enum class Screen(val title: String) { Home("Home"), Settings("Settings") }

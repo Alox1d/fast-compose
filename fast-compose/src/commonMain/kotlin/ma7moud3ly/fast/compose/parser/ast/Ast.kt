@@ -263,15 +263,20 @@ public data class IfExpr(
     val otherwise: Block?,
 ) : Expr
 
+/** `when`; [subjectName] is the name in `when (val name = subject)`, visible to the conditions and branches. */
 public data class WhenExpr(
     override val id: Int,
     override val span: Span,
     val subject: Expr?,
     val branches: List<WhenBranch>,
+    val subjectName: String? = null,
 ) : Expr
 
-/** A `when` branch; empty [conditions] means `else`. */
-public data class WhenBranch(val conditions: List<WhenCondition>, val body: Block)
+/**
+ * A `when` branch; empty [conditions] means `else`. A [guard] (`condition if guard ->`) must also be true for the
+ * branch to be taken.
+ */
+public data class WhenBranch(val conditions: List<WhenCondition>, val body: Block, val guard: Expr? = null)
 
 public sealed interface WhenCondition {
     /** Matches when equal to the subject, or when true if there is no subject. */

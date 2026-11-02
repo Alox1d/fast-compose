@@ -1609,12 +1609,13 @@ public class Interpreter(
         val subjectExpr = expr.subject
         val subject = if (subjectExpr != null) eval(subjectExpr, env) else null
         if (subject is Jump) return subject
+        val scope = whenScope(expr, subject, env)
         for (branch in expr.branches) {
             val matches = branch.conditions.isEmpty() || branch.conditions.any { condition ->
                 when (condition) {
                     is WhenCondition.Value -> eval(
                         condition.expr,
-                        env
+                        scope
                     ).let { if (subjectExpr == null) truthy(it) else it == subject }
 
                     is WhenCondition.Is -> isInstance(
@@ -1623,15 +1624,22 @@ public class Interpreter(
                     ) != condition.isNegated
 
                     is WhenCondition.In -> contains(
-                        eval(condition.expr, env),
+                        eval(condition.expr, scope),
                         subject,
-                        env
+                        scope
                     ) != condition.isNegated
                 }
             }
-            if (matches) return evalBlock(branch.body, env.child())
+            val guard = branch.guard
+            if (matches && (guard == null || truthy(eval(guard, scope)))) return evalBlock(branch.body, scope.child())
         }
         return Unit
+    }
+
+    /** The scope of a `when`'s conditions and branches: [env], plus the subject's name in `when (val name = …)`. */
+    private fun whenScope(expr: WhenExpr, subject: Any?, env: Env): Env {
+        val name = expr.subjectName ?: return env
+        return env.child().also { it.define(name, subject, mutable = false) }
     }
 
     @Composable
@@ -1639,6 +1647,7 @@ public class Interpreter(
         val subjectExpr = expr.subject
         val subject = if (subjectExpr != null) evalC(subjectExpr, env) else null
         if (isStop(subject)) return subject
+        val scope = whenScope(expr, subject, env)
         var chosen = -1
         var stop: Any? = null
         var i = 0
@@ -1650,8 +1659,8 @@ public class Interpreter(
                 val values = mutableListOf<Any?>()
                 for (condition in conditions) {
                     values += when (condition) {
-                        is WhenCondition.Value -> evalC(condition.expr, env)
-                        is WhenCondition.In -> evalC(condition.expr, env)
+                        is WhenCondition.Value -> evalC(condition.expr, scope)
+                        is WhenCondition.In -> evalC(condition.expr, scope)
                         is WhenCondition.Is -> null
                     }
                 }
@@ -1674,14 +1683,22 @@ public class Interpreter(
                             }
                         }
                     }
-                    if (matched is ErrorValue) stop =
-                        showIfError(matched) else if (matched == true) chosen = i
+                    val guard = expr.branches[i].guard
+                    when {
+                        matched is ErrorValue -> stop = showIfError(matched)
+                        matched != true -> Unit
+                        guard == null -> chosen = i
+                        else -> {
+                            val passed = evalC(guard, scope)
+                            if (isStop(passed)) stop = passed else if (truthy(passed)) chosen = i
+                        }
+                    }
                 }
             }
             i++
         }
         if (stop != null) return stop
-        return if (chosen >= 0) evalBlockC(expr.branches[chosen].body, env.child()) else Unit
+        return if (chosen >= 0) evalBlockC(expr.branches[chosen].body, scope.child()) else Unit
     }
 
     private fun evalCall(call: Call, env: Env): Any? {
@@ -2180,6 +2197,7 @@ public class Interpreter(
         val subjectExpr = expr.subject
         val subject = if (subjectExpr != null) evalS(subjectExpr, env) else null
         if (subject is Jump) return subject
+        val scope = whenScope(expr, subject, env)
         for (branch in expr.branches) {
             var matches = branch.conditions.isEmpty()
             for (condition in branch.conditions) {
@@ -2187,7 +2205,7 @@ public class Interpreter(
                 matches = when (condition) {
                     is WhenCondition.Value -> evalS(
                         condition.expr,
-                        env
+                        scope
                     ).let { if (subjectExpr == null) truthy(it) else it == subject }
 
                     is WhenCondition.Is -> isInstance(
@@ -2196,13 +2214,14 @@ public class Interpreter(
                     ) != condition.isNegated
 
                     is WhenCondition.In -> contains(
-                        evalS(condition.expr, env),
+                        evalS(condition.expr, scope),
                         subject,
-                        env
+                        scope
                     ) != condition.isNegated
                 }
             }
-            if (matches) return evalBlockS(branch.body, env.child())
+            val guard = branch.guard
+            if (matches && (guard == null || truthy(evalS(guard, scope)))) return evalBlockS(branch.body, scope.child())
         }
         return Unit
     }
