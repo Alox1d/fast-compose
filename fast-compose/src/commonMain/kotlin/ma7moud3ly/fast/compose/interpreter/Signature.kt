@@ -26,7 +26,16 @@ public class Signature private constructor(
     private val known: Set<String> = (params + namedOnly).toHashSet()
 
     /** Matches call arguments to parameter names. */
-    public fun match(positional: List<Any?>, named: Map<String, Any?>, trailing: Any?): Match {
+    /**
+     * Matches arguments to the parameters. The first [leading] positional arguments, written before any named one, fill
+     * parameters in order; positional arguments written after named ones fill the next parameters not passed by name.
+     */
+    public fun match(
+        positional: List<Any?>,
+        named: Map<String, Any?>,
+        trailing: Any?,
+        leading: Int = positional.size,
+    ): Match {
         val values = LinkedHashMap<String, Any?>()
         if (lenient) {
             values.putAll(named)
@@ -34,11 +43,13 @@ public class Signature private constructor(
         }
         val problems = ArrayList<String>(0)
         var next = 0
+        // In `Column(modifier = m, verticalArrangement = a, horizontalAlignment = h, content)` the positional argument
+        // comes after named ones, so it skips their parameters and fills `content`.
         for (param in params) {
             if (param == varargParam) {
                 values[param] = positional.drop(next)
                 next = positional.size
-            } else if (next < positional.size) {
+            } else if (next < positional.size && (next < leading || param !in named)) {
                 values[param] = positional[next++]
             }
         }
@@ -71,7 +82,7 @@ public class Signature private constructor(
         if (call.hasTrailing && (params.isEmpty() || params.last() == varargParam)) return false
         if (!call.named.keys.all { it in known }) return false
         if (types.isEmpty()) return true
-        val values = match(call.positional, call.named, call.trailing).values
+        val values = match(call.positional, call.named, call.trailing, call.leading).values
         return types.all { (param, type) ->
             if (param !in values) return@all true
             val value = values[param]
@@ -130,7 +141,13 @@ public class Signature private constructor(
 }
 
 /** Arguments of a call, used to choose between overloads before they are matched. */
-public class CallShape(public val positional: List<Any?>, public val named: Map<String, Any?>, public val trailing: Any?) {
+/** Arguments of a call; [leading] counts the positional ones written before any named argument. */
+public class CallShape(
+    public val positional: List<Any?>,
+    public val named: Map<String, Any?>,
+    public val trailing: Any?,
+    public val leading: Int = positional.size,
+) {
     public val hasTrailing: Boolean get() = trailing != null
 
     public companion object {

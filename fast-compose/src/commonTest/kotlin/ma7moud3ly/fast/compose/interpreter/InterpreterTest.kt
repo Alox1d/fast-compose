@@ -668,6 +668,21 @@ class InterpreterTest {
     }
 
     @Test
+    fun positionalArgumentsAfterNamedOnes() {
+        val registry = Registry().apply {
+            function("trio(first, second, third)") { a -> "${a["first"]}${a["second"]}${a["third"]}" }
+        }
+        val code = """
+            fun mine(a: Int, b: Int, c: Int) = "" + a + b + c
+            fun test() = trio(first = 1, second = 2, 3) + "|" + mine(a = 4, b = 5, 6)
+        """.trimIndent()
+        val problems = mutableListOf<RuntimeError>()
+        val result = Interpreter(KotlinParser.parse(code).program, registry, onError = { problems += it }).call("test")
+        assertEquals("123|456", result)
+        assertEquals(emptyList(), problems)
+    }
+
+    @Test
     fun unknownParameterIsReported() {
         val errors = mutableListOf<String>()
         val result = KotlinParser.parse("fun test() = pad(al = 1)")

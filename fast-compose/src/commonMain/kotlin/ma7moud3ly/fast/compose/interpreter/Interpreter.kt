@@ -17,6 +17,8 @@ internal class CallArgs(
     val positional: List<Any?>,
     val named: Map<String, Any?> = emptyMap(),
     val trailing: Any? = null,
+    /** Positional arguments written before any named one; those after named ones skip the named parameters. */
+    val leading: Int = positional.size,
 ) {
     /** First argument matching [predicate], without copying the arguments into one list. */
     inline fun firstOrNull(predicate: (Any?) -> Boolean): Any? {
@@ -25,7 +27,7 @@ internal class CallArgs(
         return trailing?.takeIf(predicate)
     }
 
-    val shape = CallShape(positional, named, trailing)
+    val shape = CallShape(positional, named, trailing, leading)
 
     companion object {
         val Empty = CallArgs(emptyList())
@@ -884,7 +886,7 @@ public class Interpreter(
 
     /** Matches call arguments to a binding's [signature]; problems such as unknown parameter names are reported. */
     private fun toArgs(args: CallArgs, env: Env, signature: Signature): Args {
-        val match = signature.match(args.positional, args.named, args.trailing)
+        val match = signature.match(args.positional, args.named, args.trailing, args.leading)
         // The argument is ignored or replaced by a default, so the call still runs.
         for (problem in match.problems) warn(problem)
         return Args(signature, match.values, env.receivers, this)
@@ -2027,19 +2029,25 @@ public class Interpreter(
         val label = calleeName(call.callee)
         val positional = mutableListOf<Any?>()
         val named = mutableMapOf<String, Any?>()
+        var leading = -1
         for (arg in call.args) {
             val value =
                 arg.value.let { if (it is Lambda) LambdaValue(it, env, label) else eval(it, env) }
             if (value is Jump) return value
             val name = arg.name
+            if (name != null && leading < 0) leading = positional.size
             when {
                 name != null -> named[name] = value
                 arg.isSpread -> positional.addAll(spread(value))
                 else -> positional += value
             }
         }
-        val args =
-            CallArgs(positional, named, call.trailingLambda?.let { LambdaValue(it, env, label) })
+        val args = CallArgs(
+            positional,
+            named,
+            call.trailingLambda?.let { LambdaValue(it, env, label) },
+            if (leading < 0) positional.size else leading,
+        )
         locate(call.span, env)
         return when (val callee = call.callee) {
             is Ident -> invokeTarget(
@@ -2073,19 +2081,25 @@ public class Interpreter(
         val label = calleeName(call.callee)
         val positional = mutableListOf<Any?>()
         val named = mutableMapOf<String, Any?>()
+        var leading = -1
         for (arg in call.args) {
             val argExpr = arg.value
             val value =
                 if (argExpr is Lambda) LambdaValue(argExpr, env, label) else evalC(argExpr, env)
             val name = arg.name
+            if (name != null && leading < 0) leading = positional.size
             when {
                 name != null -> named[name] = value
                 arg.isSpread && !isStop(value) -> positional.addAll(spread(value))
                 else -> positional += value
             }
         }
-        val args =
-            CallArgs(positional, named, call.trailingLambda?.let { LambdaValue(it, env, label) })
+        val args = CallArgs(
+            positional,
+            named,
+            call.trailingLambda?.let { LambdaValue(it, env, label) },
+            if (leading < 0) positional.size else leading,
+        )
         args.firstOrNull { isStop(it) }?.let { return it }
         locate(call.span, env)
         return when (val callee = call.callee) {
@@ -2570,20 +2584,26 @@ public class Interpreter(
         val label = calleeName(call.callee)
         val positional = mutableListOf<Any?>()
         val named = mutableMapOf<String, Any?>()
+        var leading = -1
         for (arg in call.args) {
             val argExpr = arg.value
             val value =
                 if (argExpr is Lambda) LambdaValue(argExpr, env, label) else evalS(argExpr, env)
             if (value is Jump) return value
             val name = arg.name
+            if (name != null && leading < 0) leading = positional.size
             when {
                 name != null -> named[name] = value
                 arg.isSpread -> positional.addAll(spread(value))
                 else -> positional += value
             }
         }
-        val args =
-            CallArgs(positional, named, call.trailingLambda?.let { LambdaValue(it, env, label) })
+        val args = CallArgs(
+            positional,
+            named,
+            call.trailingLambda?.let { LambdaValue(it, env, label) },
+            if (leading < 0) positional.size else leading,
+        )
         locate(call.span, env)
         return when (val callee = call.callee) {
             is Ident -> invokeTargetS(
