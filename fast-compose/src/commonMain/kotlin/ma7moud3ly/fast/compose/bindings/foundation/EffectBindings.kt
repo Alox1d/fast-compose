@@ -27,7 +27,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.DurationUnit
+import kotlin.time.toDuration
 import androidx.compose.animation.Animatable as colorAnimatable
 
 /** Side effects and coroutines: LaunchedEffect, DisposableEffect, launch, delay, Animatable and scroll states. */
@@ -72,7 +75,50 @@ private fun Registry.sideEffects() {
     }
 }
 
+/**
+ * How long `delay` waits: a Duration (`delay(500.milliseconds)`) or milliseconds. A stand-in, e.g. a duration from an
+ * API without a binding, waits one frame, so a loop around it still paces itself instead of spinning.
+ */
+private fun delayOf(a: Args): Duration = when (val value = a["timeMillis"]) {
+    is Duration -> value
+    is Number -> value.toLong().milliseconds
+    else -> if (a.isStandIn("timeMillis")) 16.milliseconds else Duration.ZERO
+}
+
+/** `500.milliseconds`, `2.seconds`, … as in `kotlin.time.Duration.Companion`. */
+private fun Number.toDuration(unit: DurationUnit): Duration = when (this) {
+    is Int -> toDuration(unit)
+    is Long -> toDuration(unit)
+    else -> toDouble().toDuration(unit)
+}
+
+private fun Registry.durations() {
+    type<Duration>("Duration")
+    properties<Number>(
+        "nanoseconds" to { it.toDuration(DurationUnit.NANOSECONDS) },
+        "microseconds" to { it.toDuration(DurationUnit.MICROSECONDS) },
+        "milliseconds" to { it.toDuration(DurationUnit.MILLISECONDS) },
+        "seconds" to { it.toDuration(DurationUnit.SECONDS) },
+        "minutes" to { it.toDuration(DurationUnit.MINUTES) },
+        "hours" to { it.toDuration(DurationUnit.HOURS) },
+        "days" to { it.toDuration(DurationUnit.DAYS) },
+    )
+    properties<Duration>(
+        "inWholeNanoseconds" to { it.inWholeNanoseconds },
+        "inWholeMilliseconds" to { it.inWholeMilliseconds },
+        "inWholeSeconds" to { it.inWholeSeconds },
+        "inWholeMinutes" to { it.inWholeMinutes },
+        "inWholeHours" to { it.inWholeHours },
+    )
+    member<Duration>("plus(other)") { d, a -> d + (a["other"] as? Duration ?: Duration.ZERO) }
+    member<Duration>("minus(other)") { d, a -> d - (a["other"] as? Duration ?: Duration.ZERO) }
+    member<Duration>("times(scale)") { d, a -> d * a.typed<Number>("scale", 1).toDouble() }
+    member<Duration>("div(scale)") { d, a -> d / a.typed<Number>("scale", 1).toDouble() }
+    member<Duration>("unaryMinus") { d, _ -> -d }
+}
+
 private fun Registry.coroutines() {
+    durations()
     type<CoroutineScope>("CoroutineScope")
     type<Job>("Job")
     composable("rememberCoroutineScope") { rememberCoroutineScope() }
@@ -83,7 +129,7 @@ private fun Registry.coroutines() {
     member<Job>("cancel") { job, _ -> job.cancel() }
     properties<Job>("isActive" to { it.isActive }, "isCompleted" to { it.isCompleted })
     suspendFunction("delay(timeMillis)") { a ->
-        delay(a.long("timeMillis", 0L).milliseconds)
+        delay(delayOf(a))
         Unit
     }
     suspendFunction("withFrameNanos(onFrame)") { a ->

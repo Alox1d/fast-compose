@@ -103,7 +103,12 @@ public class Interpreter(
     /** Renders [entry], a no-arg composable function. */
     @Composable
     public fun Render(entry: FunDecl) {
+        // A new composition of the preview; also clears a count left behind by a composition that crashed.
+        running = 0
+        startRun()
+        running++
         showIfError(callFunctionC(entry, NoReceiver, CallArgs.Empty, null))
+        running--
     }
 
     /** Calls a top-level non-composable function and returns its result. */
@@ -111,7 +116,7 @@ public class Interpreter(
         val callArgs = CallArgs(args.toList())
         val decl = resolveFunction(name, callArgs, extension = false, main)
             ?: throw InterpreterException("Unresolved reference '$name'")
-        return callFunction(decl, NoReceiver, callArgs, null)
+        return entry { callFunction(decl, NoReceiver, callArgs, null) }
     }
 
     /** Reports a problem to [onError], at the line of the code being evaluated, without failing. */
@@ -125,7 +130,7 @@ public class Interpreter(
     internal fun log(message: String) = onLog(message)
 
     /** Evaluates an expression at top level, e.g. an annotation argument. */
-    public fun evaluate(expr: Expr): Any? = eval(expr, root)
+    public fun evaluate(expr: Expr): Any? = entry { eval(expr, root) }
 
     private fun fail(message: String): ErrorValue {
         val error = RuntimeError(message, location?.line, file = locationFile)
@@ -159,24 +164,33 @@ public class Interpreter(
 
     /** Invokes a function value inside composition. */
     @Composable
-    internal fun invokeComposable(fn: Any?, receiver: Any?, args: List<Any?>): Any? = when (fn) {
-        is LambdaValue -> invokeLambdaC(fn, receiver, args)
-        is ComposableSlot -> fn.content()
-        is FunctionRef ->
-            if (fn.decl.isComposable) callFunctionC(
-                fn.decl,
-                fn.receiver,
-                CallArgs(args),
-                fn.closure
-            )
-            else showIfError(guard { invokeValue(fn, CallArgs(args)) })
+    internal fun invokeComposable(fn: Any?, receiver: Any?, args: List<Any?>): Any? {
+        // Compose calls content lambdas during composition and also later, e.g. lazy list items during layout.
+        if (running == 0) startRun()
+        running++
+        val result = when (fn) {
+            is LambdaValue -> invokeLambdaC(fn, receiver, args)
+            is ComposableSlot -> fn.content()
+            is FunctionRef ->
+                if (fn.decl.isComposable) callFunctionC(
+                    fn.decl,
+                    fn.receiver,
+                    CallArgs(args),
+                    fn.closure
+                )
+                else showIfError(guard { invokeValue(fn, CallArgs(args)) })
 
-        else -> showIfError(guard { invokeValue(fn, CallArgs(args)) })
+            else -> showIfError(guard { invokeValue(fn, CallArgs(args)) })
+        }
+        running--
+        return result
     }
 
     /** Invokes a function value from plain code such as an event handler; errors are reported and returned as [ErrorValue]. */
-    internal fun invokeSafely(fn: Any?, receiver: Any?, args: List<Any?>): Any? = guard {
-        if (fn is LambdaValue) invokeLambda(fn, receiver, args) else invokeValue(fn, CallArgs(args))
+    internal fun invokeSafely(fn: Any?, receiver: Any?, args: List<Any?>): Any? = entry {
+        guard {
+            if (fn is LambdaValue) invokeLambda(fn, receiver, args) else invokeValue(fn, CallArgs(args))
+        }
     }
 
     internal fun invokeValue(fn: Any?, args: CallArgs): Any? = when (fn) {
@@ -446,7 +460,11 @@ public class Interpreter(
 
     @Composable
     private fun RestartableCall(decl: FunDecl, receiver: Any?, args: CallArgs, closure: Env?) {
+        // Compose may recompose this call alone, outside any other interpreted code.
+        if (running == 0) startRun()
+        running++
         showIfError(runFunctionC(decl, receiver, args, closure))
+        running--
     }
 
     /** True for a declared return type other than `Unit`, or an expression body such as `= MaterialTheme.colorScheme.primary`. */
@@ -658,6 +676,43 @@ public class Interpreter(
 
     /** True after code ran too long, until the thread is free again; all evaluation stops meanwhile. */
     private var halted = false
+
+    /**
+     * Interpreted calls running now that were entered from outside: a composition, a draw or layout callback or an
+     * event handler. A new run of [maxRunTime] starts when this is 0, so code that runs once per frame, such as a
+     * continuous animation, is never stopped; only one entry that runs too long is.
+     */
+    private var running = 0
+
+    /** Starts a new run of [maxRunTime]: the thread was free before this entry, e.g. between two frames. */
+    private fun startRun() {
+        val now = TimeSource.Monotonic.markNow()
+        runStart = now
+        lastCheck = now
+        halted = false
+    }
+
+    /** Runs [block], entered from outside the interpreter; a new run starts unless interpreted code is running. */
+    private inline fun <T> entry(block: () -> T): T {
+        if (running == 0) startRun()
+        running++
+        try {
+            return block()
+        } finally {
+            running--
+        }
+    }
+
+    /**
+     * Calls a suspend binding such as `delay` or `withFrameNanos`. When it really waited, the thread was free, so the
+     * code after it starts a new run; a call that returns at once, like `delay(0)`, does not.
+     */
+    private suspend fun suspending(call: suspend () -> Any?): Any? {
+        val before = TimeSource.Monotonic.markNow()
+        val result = call()
+        if (running == 0 && before.elapsedNow() >= MIN_WAIT) startRun()
+        return result
+    }
 
     /** Ends a composable function early while [halted], so composition finishes quickly. */
     private val haltJump = Jump(Jump.Kind.RETURN)
@@ -2215,9 +2270,7 @@ public class Interpreter(
         val name =
             Operators.functionName(op) ?: throw InterpreterException("Unsupported operator '$op'")
         val target = resolveMemberCall(left, name, CallArgs(listOf(right)), root)
-            ?: throw InterpreterException(
-                "Operator '$op' is not defined for ${typeName(left)} and ${typeName(right)}"
-            )
+            ?: return missingOperator(op, left, right)
         val result = invokeTarget(target, CallArgs(listOf(right)), name)
         if (name != "compareTo") return result
         val c = result as? Int ?: throw InterpreterException("compareTo must return Int")
@@ -2227,6 +2280,19 @@ public class Interpreter(
             "<=" -> c <= 0
             else -> c >= 0
         }
+    }
+
+    /**
+     * Result of an operator nothing provides. On your own classes it is an error; on library values, e.g. a
+     * Compose type without a binding for it, a stand-in with one warning (a comparison is false).
+     */
+    private fun missingOperator(op: String, left: Any?, right: Any?): Any? {
+        val message = "Operator '$op' is not defined for ${typeName(left)} and ${typeName(right)}"
+        if (left is UserValue) throw InterpreterException(message)
+        if (warnedOnce.add("operator:$op:${typeName(left)}:${typeName(right)}")) {
+            warn("$message; a stand-in is used, so the preview may differ")
+        }
+        return if (op in setOf("<", ">", "<=", ">=")) false else StandIn("${typeName(left)} $op ${typeName(right)}")
     }
 
     private fun contains(container: Any?, element: Any?, env: Env?): Boolean {
@@ -2279,12 +2345,15 @@ public class Interpreter(
         val callArgs = CallArgs(args.toList())
         val decl = resolveFunction(name, callArgs, extension = false, main)
             ?: throw InterpreterException("Unresolved reference '$name'")
+        if (running == 0) startRun()
         return callFunctionS(decl, NoReceiver, callArgs, null)
     }
 
     /** Invokes a function value inside a coroutine; errors other than cancellation are reported and return null. */
     internal suspend fun invokeSuspendSafely(fn: Any?, receiver: Any?, args: List<Any?>): Any? =
         try {
+            // A coroutine starting or resuming runs between frames, outside other interpreted code.
+            if (running == 0) startRun()
             invokeSuspend(fn, receiver, args)
         } catch (e: CancellationException) {
             throw e
@@ -2330,7 +2399,7 @@ public class Interpreter(
 
     private suspend fun invokeTargetS(target: Target?, args: CallArgs, name: String): Any? =
         when (target) {
-            is Target.Suspend -> target.call()
+            is Target.Suspend -> suspending { target.call() }
             is Target.UserFunction -> callFunctionS(
                 target.decl,
                 target.receiver,
@@ -2764,6 +2833,9 @@ public class Interpreter(
         const val MAX_ITERATIONS = 100_000
         const val YIELD_EVERY = 1_000
         const val CHECK_EVERY = 4_096
+
+        /** A suspend call that took at least this long really waited, so the thread was free meanwhile. */
+        val MIN_WAIT = 4.milliseconds
         /** Default for [maxRunTime]: long enough for any real preview, short enough to avoid a frozen app. */
         val DEFAULT_MAX_RUN_TIME: Duration = 2.seconds
         val PAUSE = 50.milliseconds

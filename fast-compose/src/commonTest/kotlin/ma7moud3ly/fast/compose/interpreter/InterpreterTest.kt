@@ -10,6 +10,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.TimeSource
 
 class InterpreterTest {
 
@@ -20,6 +21,28 @@ class InterpreterTest {
     }
 
     private fun run(code: String, vararg args: Any?): Any? = interpreter(code).call("test", *args)
+
+    @Test
+    fun eachEntryGetsItsOwnTimeLimit() {
+        val code = """
+            fun work(): Int {
+                var n = 0
+                for (i in 0 until 3000) n++
+                return n
+            }
+        """.trimIndent()
+        val interpreter = Interpreter(KotlinParser.parse(code).program, Registry(), maxRunTime = 30.milliseconds)
+        // Many short calls, like a draw callback on every frame, run longer than the limit in total but never stop.
+        val start = TimeSource.Monotonic.markNow()
+        while (start.elapsedNow() < 200.milliseconds) assertEquals(3000, interpreter.call("work"))
+    }
+
+    @Test
+    fun missingOperatorsOnLibraryValuesRunAsStandIns() {
+        val (result, problems) = runWithProblems("fun test() = \"x\" + (Pair(1, 2) * 3)")
+        assertEquals("x", result)
+        assertEquals(1, problems.size, problems.toString())
+    }
 
     @Test
     fun arithmetic() {

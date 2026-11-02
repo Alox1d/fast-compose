@@ -10,6 +10,7 @@ import ma7moud3ly.fast.compose.interpreter.RuntimeError
 import ma7moud3ly.fast.compose.interpreter.StandIn
 import ma7moud3ly.fast.compose.parser.Diagnostic
 import ma7moud3ly.fast.compose.parser.KotlinParser
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -105,6 +106,34 @@ class FoundationBindingsTest {
         // A stand-in is not provided, so Compose never receives a value of the wrong type.
         val program = KotlinParser.parse("fun test() = LocalLayoutDirection provides RightToLeft").program
         assertTrue(Interpreter(program, registry).call("test") is StandIn)
+    }
+
+    @Test
+    fun textUnitArithmetic() {
+        val code = """
+            fun test(): Float {
+                val sizes = (14.sp * 1.5f).value + (2 * 3.sp).value + (12.sp / 2).value
+                return if (14.sp > 12.sp) sizes else 0f
+            }
+        """
+        assertEquals(33f, runClean(code))
+    }
+
+    @Test
+    fun durations() {
+        assertEquals(2530L, runClean("fun test() = (530.milliseconds + 2.seconds).inWholeMilliseconds"))
+    }
+
+    @Test
+    fun delayTakesDurationsAndStandIns() = runTest {
+        val code = """
+            suspend fun test(): Int {
+                delay(5.milliseconds)
+                delay(DefaultPause)
+                return 1
+            }
+        """.trimIndent()
+        assertEquals(1, Interpreter(KotlinParser.parse(code).program, registry).callSuspend("test"))
     }
 
     @Test

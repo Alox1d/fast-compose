@@ -389,7 +389,19 @@ private fun Registry.modifiers() {
 private fun Registry.values() {
     member<Number>("dp") { n, _ -> n.toFloat().dp }
     member<Number>("sp") { n, _ -> n.toFloat().sp }
-    member<Number>("times(other)") { n, a -> (a["other"] as? Dp)?.times(n.toFloat()) ?: throw InterpreterException("Unsupported operand for '*'") }
+    member<Number>("times(other)") { n, a ->
+        when (val other = a["other"]) {
+            is Dp -> other * n.toFloat()
+            is TextUnit -> other * n.toFloat()
+            else -> throw InterpreterException("Unsupported operand for '*'")
+        }
+    }
+    member<TextUnit>("times(other)") { t, a -> t * a.float("other", 1f) }
+    // `14.sp / 7.sp` is a plain number, the ratio of the values.
+    member<TextUnit>("div(other)") { t, a -> (a["other"] as? TextUnit)?.let { t.value / it.value } ?: (t / a.float("other", 1f)) }
+    member<TextUnit>("unaryMinus") { t, _ -> -t }
+    member<TextUnit>("compareTo(other)") { t, a -> t.compareTo(a.typed<TextUnit>("other", t)) }
+    properties<TextUnit>("value" to { it.value }, "isSp" to { it.isSp }, "isEm" to { it.isEm })
     member<Dp>("plus(other)") { d, a -> d + a.dp("other", 0.dp) }
     member<Dp>("minus(other)") { d, a -> d - a.dp("other", 0.dp) }
     member<Dp>("times(other)") { d, a -> d * a.float("other", 1f) }
