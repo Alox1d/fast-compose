@@ -1060,12 +1060,14 @@ public class Interpreter(
 
     /**
      * Stand-in for [name] when [file] imports it explicitly but nothing provides it, such as a library API without a
-     * binding; warns once per import. Names that are not imported stay unresolved.
+     * binding, or when it is a `java.lang` class that Kotlin imports implicitly on the JVM, such as `Thread`; warns
+     * once per name. Other names stay unresolved.
      */
     private fun importedStandIn(name: String, file: FileScope): StandIn? {
-        val import = file.program.imports.firstOrNull { !it.isStar && it.visibleName == name } ?: return null
-        if (warnedOnce.add("import:${import.path}")) {
-            warn("'$name' (${import.declarationPackage}) has no binding; a stand-in is used, so the preview may differ")
+        val import = file.program.imports.firstOrNull { !it.isStar && it.visibleName == name }
+        val packageName = import?.declarationPackage ?: if (name in IMPLICIT_JAVA_LANG) "java.lang" else return null
+        if (warnedOnce.add("import:${import?.path ?: "java.lang.$name"}")) {
+            warn("'$name' ($packageName) has no binding; a stand-in is used, so the preview may differ")
         }
         return StandIn(name)
     }
@@ -2709,6 +2711,12 @@ public class Interpreter(
         val DEFAULT_MAX_RUN_TIME: Duration = 2.seconds
         val PAUSE = 50.milliseconds
         val GLOBAL_INTRINSICS = setOf("repeat", "run", "with", "buildList", "buildSet", "buildMap")
+
+        /** `java.lang` classes that platform code uses without an import; unbound ones run as stand-ins. */
+        val IMPLICIT_JAVA_LANG = setOf(
+            "System", "Math", "StrictMath", "Thread", "Runtime", "Integer", "Character", "Process", "ProcessBuilder",
+            "Class", "ClassLoader", "Object",
+        )
         val MEMBER_INTRINSICS = setOf("let", "also", "apply", "run", "forEach", "forEachIndexed")
         val ITERATING_INTRINSICS = setOf("forEach", "forEachIndexed")
     }

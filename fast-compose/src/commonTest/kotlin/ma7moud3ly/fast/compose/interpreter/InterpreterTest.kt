@@ -248,6 +248,13 @@ class InterpreterTest {
     }
 
     @Test
+    fun implicitJavaLangClassesRunAsStandIns() {
+        val (result, problems) = runWithProblems("fun test() = \"\" + Thread.currentThread().name + \"|done\"")
+        assertEquals("|done", result)
+        assertEquals(1, problems.size, problems.toString())
+    }
+
+    @Test
     fun namesThatAreNotImportedStayUnresolved() {
         val error = assertFailsWith<InterpreterException> { run("fun test() = getTimeMillis()") }
         assertEquals("Unresolved reference 'getTimeMillis'", error.message)

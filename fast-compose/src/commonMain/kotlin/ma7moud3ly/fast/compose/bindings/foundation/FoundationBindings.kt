@@ -136,6 +136,7 @@ public object FoundationBindings : BindingPack {
         layoutBindings()
         windows()
         images()
+        javaLang()
     }
 }
 

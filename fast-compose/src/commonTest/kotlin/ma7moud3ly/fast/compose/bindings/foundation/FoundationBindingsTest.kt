@@ -77,6 +77,24 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun javaSystemAndMath() {
+        val code = """
+            fun test(): String {
+                val version = System.getProperty("java.version")
+                return listOf(
+                    version != null,
+                    System.getProperty("fast.compose.missing", "default"),
+                    Math.max(2, 5),
+                    Math.abs(-3),
+                    Math.round(2.6),
+                    System.currentTimeMillis() > 0
+                ).joinToString("|")
+            }
+        """
+        assertEquals("true|default|5|3|3|true", runClean(code))
+    }
+
+    @Test
     fun stateCollections() {
         val code = """
             fun test(): Int {
