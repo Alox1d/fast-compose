@@ -240,6 +240,24 @@ internal class Builtins(private val interpreter: Interpreter) {
             "takeIf" -> return if (predicate(args.fn(), receiver)) receiver else null
             "takeUnless" -> return if (predicate(args.fn(), receiver)) null else receiver
             "compareTo" -> return Operators.compare(receiver, a.firstOrNull())
+            // Extensions on nullable receivers. A null value has no type here, so `orEmpty()` on null gives an empty
+            // String, the most common case.
+            "isNullOrEmpty" -> when (receiver) {
+                null -> return true
+                is CharSequence -> return receiver.isEmpty()
+                is Collection<*> -> return receiver.isEmpty()
+                is Map<*, *> -> return receiver.isEmpty()
+            }
+
+            "isNullOrBlank" -> when (receiver) {
+                null -> return true
+                is CharSequence -> return receiver.isBlank()
+            }
+
+            "orEmpty" -> when (receiver) {
+                null -> return ""
+                is CharSequence, is Collection<*>, is Map<*, *> -> return receiver
+            }
         }
         return when (receiver) {
             is String -> string(receiver, name, args)

@@ -298,6 +298,21 @@ class InterpreterTest {
     }
 
     @Test
+    fun nullableReceiverExtensions() {
+        val code = """
+            fun name(): String? = null
+            fun items(): List<Int>? = null
+
+            fun test() = (
+                name().orEmpty() + "|" + name().isNullOrEmpty() + "|" + "a".orEmpty() + "|" +
+                    listOf(1).orEmpty().size + "|" + " ".isNullOrBlank() + "|" + items().isNullOrEmpty() + "|" +
+                    "x".isNullOrEmpty()
+            )
+        """.trimIndent()
+        assertEquals("|true|a|1|true|true|false", run(code))
+    }
+
+    @Test
     fun builders() {
         val code = """
             fun test(): Int {
