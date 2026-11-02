@@ -77,6 +77,20 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun stateCollections() {
+        val code = """
+            fun test(): Int {
+                val list = listOf(1, 2).toMutableStateList()
+                list.add(3)
+                val empty = emptyList<Int>().toMutableStateList()
+                val map = listOf("a" to 1).toMutableStateMap()
+                return list.size * 100 + empty.size * 10 + map.size
+            }
+        """
+        assertEquals(301, runClean(code))
+    }
+
+    @Test
     fun spacedByWithAlignment() {
         val code = "fun test() = Arrangement.spacedBy(4.dp, Alignment.CenterVertically) != Arrangement.spacedBy(4.dp)"
         assertEquals(true, runClean(code))

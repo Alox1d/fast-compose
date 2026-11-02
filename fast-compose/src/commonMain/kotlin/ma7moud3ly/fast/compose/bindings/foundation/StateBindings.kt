@@ -9,6 +9,8 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.toMutableStateList
+import androidx.compose.runtime.toMutableStateMap
 import androidx.compose.ui.focus.FocusManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -34,6 +36,10 @@ internal fun Registry.stateExtras() {
     }
     function("mutableStateMapOf(vararg pairs)") { a ->
         mutableStateMapOf<Any?, Any?>().apply { a.varargs("pairs").filterIsInstance<Pair<*, *>>().forEach { (key, value) -> put(key, value) } }
+    }
+    member<Collection<*>>("toMutableStateList()") { items, _ -> items.toMutableStateList() }
+    member<Iterable<*>>("toMutableStateMap()") { pairs, _ ->
+        pairs.filterIsInstance<Pair<Any?, Any?>>().toMutableStateMap()
     }
     function("mutableLongStateOf(value)") { a -> mutableLongStateOf(a.long("value", 0L)) }
     function("mutableDoubleStateOf(value)") { a -> mutableDoubleStateOf(a.typed<Number>("value", 0.0).toDouble()) }
