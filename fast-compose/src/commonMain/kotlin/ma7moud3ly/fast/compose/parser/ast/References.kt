@@ -172,6 +172,11 @@ private class ReferenceWalker {
             }
             is StringTemplate -> e.parts.forEach { if (it is StringPart.Template) expr(it.expr) }
             is ReturnStmt -> e.value?.let(::expr)
+            is ObjectExpr -> {
+                e.decl.superTypes.forEach(::type)
+                e.decl.members.forEach(::stmt)
+                e.decl.initBlocks.forEach(::block)
+            }
             is BreakStmt, is ContinueStmt, is IntLit, is LongLit, is FloatLit, is DoubleLit, is CharLit, is BoolLit,
             is NullLit, is ThisExpr, is ErrorExpr -> Unit
         }

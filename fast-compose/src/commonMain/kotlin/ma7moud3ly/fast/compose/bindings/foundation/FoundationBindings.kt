@@ -19,6 +19,7 @@ import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -82,6 +83,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.DefaultShadowColor
 import androidx.compose.ui.graphics.RectangleShape
@@ -306,7 +308,20 @@ private fun Registry.modifiers() {
         val shape = a.typed("shape", RectangleShape)
         if (brush != null) m.background(brush, shape, a.float("alpha", 1f)) else m.background(a.color("color"), shape)
     }
-    member<Modifier>("border(width, color, shape)") { m, a -> m.border(a.dp("width", 1.dp), a.color("color", Color.Black), a.typed("shape", RectangleShape)) }
+    member<Modifier>("border(width: Dp, color: Color, shape)") { m, a ->
+        m.border(a.dp("width", 1.dp), a.color("color", Color.Black), a.typed("shape", RectangleShape))
+    }
+    member<Modifier>("border(border: BorderStroke, shape)") { m, a ->
+        m.border(a.typed("border", BorderStroke(1.dp, Color.Black)), a.typed("shape", RectangleShape))
+    }
+    type<BorderStroke>("BorderStroke")
+    function("BorderStroke(width, color: Color)") { a ->
+        BorderStroke(a.dp("width", 1.dp), a.color("color", Color.Black))
+    }
+    function("BorderStroke(width, brush: Brush)") { a ->
+        BorderStroke(a.dp("width", 1.dp), a.typed<Brush>("brush", SolidColor(Color.Black)))
+    }
+    properties<BorderStroke>("width" to { it.width }, "brush" to { it.brush })
     member<Modifier>("clip(shape)") { m, a -> m.clip(a.typed("shape", RectangleShape)) }
     member<Modifier>("alpha(alpha)") { m, a -> m.alpha(a.float("alpha", 1f)) }
     member<Modifier>("clickable(enabled, onClickLabel, role, onClick)") { m, a ->

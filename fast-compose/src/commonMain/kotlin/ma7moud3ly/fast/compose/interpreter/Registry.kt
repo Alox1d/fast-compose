@@ -236,7 +236,7 @@ public class Registry(private val parent: Registry? = null) {
     /** Checks [value] against a signature parameter type: Kotlin basics, then names registered with [type]. Unknown types match anything. */
     private fun isA(value: Any?, type: String): Boolean {
         if (value == null) return type.endsWith("?")
-        if (value is ErrorValue) return true
+        if (value is ErrorValue || value is StandIn) return true
         if ("->" in type) return value is LambdaValue || value is FunctionRef || value is ComposableSlot || value is Function<*>
         return when (val name = type.removeSuffix("?").substringBefore('<').trim()) {
             "Any" -> true

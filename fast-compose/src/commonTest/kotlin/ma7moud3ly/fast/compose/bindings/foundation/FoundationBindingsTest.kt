@@ -2,6 +2,7 @@ package ma7moud3ly.fast.compose.bindings.foundation
 
 import ma7moud3ly.fast.compose.interpreter.Interpreter
 import ma7moud3ly.fast.compose.interpreter.Registry
+import ma7moud3ly.fast.compose.interpreter.RuntimeError
 import ma7moud3ly.fast.compose.parser.Diagnostic
 import ma7moud3ly.fast.compose.parser.KotlinParser
 import kotlin.test.Test
@@ -31,6 +32,23 @@ class FoundationBindingsTest {
             }
         """.trimIndent()
         assertEquals("Hi there", run(code))
+    }
+
+    @Test
+    fun borderOverloads() {
+        val problems = mutableListOf<RuntimeError>()
+        val code = """
+            fun test(): Boolean {
+                val stroke = BorderStroke(1.dp, Color.Red)
+                return (
+                    Modifier.border(stroke, RoundedCornerShape(4.dp)) is Modifier &&
+                        Modifier.border(2.dp, Color.Blue) is Modifier && stroke.width == 1.dp
+                )
+            }
+        """.trimIndent()
+        val program = KotlinParser.parse(code).program
+        assertEquals(true, Interpreter(program, registry, onError = { problems += it }).call("test"))
+        assertEquals(emptyList(), problems)
     }
 
     @Test

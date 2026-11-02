@@ -67,7 +67,7 @@ private fun Registry.canvas() {
 /** Brush passed by name or as the first argument (`drawCircle(brush, …)`), else null for the color overload. */
 private fun Args.brush(first: String): Brush? = this["brush"] as? Brush ?: this[first] as? Brush
 
-private fun Args.style(): DrawStyle = typed("style", Fill)
+private fun Args.style(): DrawStyle = typed<DrawStyle>("style", Fill)
 
 private fun Args.colorFilter(): ColorFilter? = typedOrNull<ColorFilter>("colorFilter")
 

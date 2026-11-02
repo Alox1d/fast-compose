@@ -128,6 +128,11 @@ public class Parser(private val tokens: List<Token>) {
         val saved = pos
         val modifiers = parseModifiers()
         return when {
+            // `object : Type { … }` and `object { … }` are expressions, not declarations.
+            at(OBJECT) && "companion" !in modifiers.words && peekAfter().type in setOf(COLON, LBRACE) -> {
+                pos = saved
+                null
+            }
             at(FUN) -> parseFunction(start, modifiers)
             at(VAL) || at(VAR) -> parseProperty(start).copy(isPrivate = "private" in modifiers.words)
             at(CLASS) || at(OBJECT) || isSoft("interface") -> parseClass(start, modifiers)
@@ -298,8 +303,10 @@ public class Parser(private val tokens: List<Token>) {
         return Param(name, type, default, isVararg)
     }
 
-    private fun parseClass(start: Token, modifiers: Modifiers): ClassDecl {
+    /** Parses a class, object or interface; with [anonymous], the class of an `object : … { … }` expression. */
+    private fun parseClass(start: Token, modifiers: Modifiers, anonymous: Boolean = false): ClassDecl {
         val kind = when {
+            anonymous -> ClassKind.CLASS
             at(OBJECT) -> ClassKind.OBJECT
             isSoft("interface") -> ClassKind.INTERFACE
             "enum" in modifiers.words -> ClassKind.ENUM
@@ -310,6 +317,7 @@ public class Parser(private val tokens: List<Token>) {
         val name = when {
             at(IDENTIFIER) -> advance().value
             "companion" in modifiers.words -> "Companion"
+            anonymous -> "object"
             else -> throw error("Expected a class name, found ${describe(cur())}")
         }
         skipTypeParameters()
@@ -827,7 +835,10 @@ public class Parser(private val tokens: List<Token>) {
                 advance()
                 ErrorExpr(id(), spanFrom(t))
             }
-            OBJECT -> throw error("Object expressions are not supported")
+            OBJECT -> {
+                val decl = parseClass(t, Modifiers(emptyList(), emptySet()), anonymous = true)
+                ObjectExpr(id(), spanFrom(t), decl)
+            }
             else -> throw error("Expected an expression, found ${describe(t)}")
         }
     }

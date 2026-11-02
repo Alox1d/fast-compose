@@ -111,6 +111,9 @@ public abstract class UserValue internal constructor(public val decl: ClassDecl)
 
 public class ObjectValue internal constructor(decl: ClassDecl) : UserValue(decl) {
 
+    /** Scope an anonymous `object : … { … }` was created in; its members see it. Null for declared classes. */
+    internal var closure: Env? = null
+
     private val isData get() = decl.kind == ClassKind.DATA_CLASS
 
     internal fun dataValues(): List<Any?> =

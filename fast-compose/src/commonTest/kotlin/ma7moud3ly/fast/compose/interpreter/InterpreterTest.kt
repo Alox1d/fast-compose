@@ -298,6 +298,76 @@ class InterpreterTest {
     }
 
     @Test
+    fun companionMembersInsideTheirClass() {
+        val code = """
+            data class MicroFile(val name: String = "", private val type: Int = FILE) {
+                val isFile: Boolean get() = type == FILE
+                fun kind() = if (isFile) label(FILE) else "dir"
+
+                companion object {
+                    const val DIRECTORY = 0x4000
+                    const val FILE = 0x8000
+                    fun label(type: Int) = "file " + type
+                }
+            }
+
+            enum class Vendor(val id: Int, val title: String) {
+                A(1, "a"), B(2, "b");
+
+                companion object {
+                    fun of(id: Int?): Vendor? = entries.firstOrNull { it.id == id }
+                }
+            }
+
+            fun test() = (
+                "" + MicroFile("x").isFile + "|" + MicroFile("x").kind() + "|" +
+                    MicroFile("d", MicroFile.DIRECTORY).isFile + "|" + Vendor.of(2)?.title
+            )
+        """.trimIndent()
+        assertEquals("true|file 32768|false|b", run(code))
+    }
+
+    @Test
+    fun extensionPropertiesThroughTheImplicitReceiver() {
+        val code = """
+            data class Device(val board: String, val vendorId: Int)
+
+            val Device.vendor: String? get() = if (vendorId == 1) "acme" else null
+
+            val Device.label: String get() = listOfNotNull(vendor?.uppercase(), board).joinToString(" ")
+
+            fun test() = Device("pico", 1).label + "|" + Device("esp", 2).label
+        """.trimIndent()
+        assertEquals("ACME pico|esp", run(code))
+    }
+
+    @Test
+    fun objectExpressions() {
+        val code = """
+            interface Greeter {
+                fun greet(name: String): String
+            }
+
+            fun make(prefix: String): Greeter {
+                var count = 0
+                return object : Greeter {
+                    override fun greet(name: String): String {
+                        count++
+                        return prefix + " " + name + " " + count
+                    }
+                }
+            }
+
+            fun test(): String {
+                val greeter = make("hi")
+                greeter.greet("a")
+                return greeter.greet("b") + "|" + (greeter is Greeter)
+            }
+        """.trimIndent()
+        assertEquals("hi b 2|true", run(code))
+    }
+
+    @Test
     fun failingDefaultsUseEmptyValues() {
         val (result, problems) = runWithProblems(
             """

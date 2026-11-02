@@ -272,6 +272,9 @@ public data class TypeCheck(
 /** `expr as Type` / `expr as? Type`. */
 public data class Cast(override val id: Int, override val span: Span, val expr: Expr, val type: TypeRef, val isSafe: Boolean) : Expr
 
+/** An anonymous `object : Types { members }` expression; [decl] is its class, named `object`. */
+public data class ObjectExpr(override val id: Int, override val span: Span, val decl: ClassDecl) : Expr
+
 /** `if`; single-statement branches are wrapped in a [Block]. */
 public data class IfExpr(
     override val id: Int,

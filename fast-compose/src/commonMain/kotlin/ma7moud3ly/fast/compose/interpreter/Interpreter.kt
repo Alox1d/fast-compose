@@ -478,7 +478,7 @@ public class Interpreter(
 
     private fun initialize(value: UserValue, args: CallArgs) {
         val decl = value.decl
-        val env = scopeOf(decl).root.child(value)
+        val env = ((value as? ObjectValue)?.closure ?: scopeOf(decl).root).child(value)
         for (p in bindParams(decl.constructorParams.map { it.param }, args, env, decl.name)) {
             val default = p.default ?: continue
             env.define(p.name, defaultValue(p, default, env), mutable = false)
@@ -499,6 +499,22 @@ public class Interpreter(
             if (compute != null) value.fields[member.name] = if (isObject) LazyField(compute) else compute()
         }
         for (block in decl.initBlocks) evalBlock(block, env.child())
+    }
+
+    /** Instance of an anonymous `object : … { … }`; its members see the scope [env] it is created in. */
+    private fun createObject(decl: ClassDecl, env: Env): ObjectValue {
+        env.scope?.let { anonymousScopes[decl.id to decl.span] = it }
+        val obj = ObjectValue(decl)
+        obj.closure = env
+        initialize(obj, CallArgs.Empty)
+        return obj
+    }
+
+    /** Scope that members of [receiver]'s class see when [member] is one of them and [receiver] is anonymous. */
+    private fun memberClosure(receiver: Any?, member: Decl): Env? {
+        val obj = receiver as? ObjectValue ?: return null
+        val closure = obj.closure ?: return null
+        return closure.takeIf { obj.decl.members.any { it === member } }
     }
 
     private fun objectInstance(decl: ClassDecl): ObjectValue {
@@ -560,7 +576,8 @@ public class Interpreter(
     private fun evalGetter(property: PropertyDecl, receiver: Any?): Any? {
         val getter = property.getter
             ?: throw InterpreterException("Property '${property.name}' has no getter")
-        return functionResult(evalBlock(getter, scopeOf(property).root.child(receiver)))
+        val base = memberClosure(receiver, property) ?: scopeOf(property).root
+        return functionResult(evalBlock(getter, base.child(receiver)))
     }
 
     private fun topLevelProperty(decl: PropertyDecl): Any? {
@@ -592,7 +609,14 @@ public class Interpreter(
 
     /** File that declares [decl]. */
     private fun scopeOf(decl: Decl): FileScope =
-        if (scopes.size == 1) main else scopes.firstOrNull { it.owns(decl) } ?: main
+        if (scopes.size == 1) {
+            main
+        } else {
+            scopes.firstOrNull { it.owns(decl) } ?: anonymousScopes[decl.id to decl.span] ?: main
+        }
+
+    /** Files of anonymous object classes, which no file owns as a declaration, by the class's id and span. */
+    private val anonymousScopes = mutableMapOf<Pair<Int, Span>, FileScope>()
 
     private fun locate(span: Span, env: Env) {
         location = span
@@ -734,10 +758,14 @@ public class Interpreter(
                     return Target.UserFunction(
                         it,
                         receiver,
-                        null
+                        memberClosure(receiver, it)
                     )
                 }
                 if (receiver.hasField(name)) return Target.Value(receiver.read(name))
+                // Inside a class, functions of its companion object can be called without a qualifier.
+                companion(receiver.decl)?.takeIf { it !== receiver }?.let { companion ->
+                    findMethod(companion.decl, name, args)?.let { return Target.UserFunction(it, companion, null) }
+                }
                 if (receiver is ObjectValue && receiver.decl.kind == ClassKind.DATA_CLASS) {
                     if (name == "copy") return Target.Plain { copy(receiver, args) }
                     if (name.startsWith("component")) {
@@ -932,7 +960,59 @@ public class Interpreter(
         ) != null) -> true
 
         registry.hasMember(receiver, name) -> true
+        extensionProperties.any { it.name == name && isReceiverOf(receiver, it) } -> true
+        receiver is UserValue && hasClassMember(receiver, name) -> true
         else -> builtins.property(receiver, name) !== Unresolved
+    }
+
+    /**
+     * True when [name] is a member of [value]'s companion object, or, for a companion object, an entry or nested class
+     * of its class: names visible without a qualifier inside the class.
+     */
+    private fun hasClassMember(value: UserValue, name: String): Boolean {
+        val companion = companion(value.decl)?.takeIf { it !== value }
+        if (companion != null && (companion.hasField(name) || findGetter(companion.decl, name) != null)) return true
+        val outer = outerClassOf(value.decl) ?: return false
+        return staticMember(outer, name) != null
+    }
+
+    /** True when [value] fits [property]'s receiver type; unknown receiver types don't match. */
+    private fun isReceiverOf(value: Any?, property: PropertyDecl): Boolean {
+        val type = property.receiver?.text ?: return false
+        return try {
+            isInstance(value, type)
+        } catch (_: InterpreterException) {
+            false
+        }
+    }
+
+    /** An enum entry, `entries`, or a nested class or object of [decl] named [name]; null if none. */
+    private fun staticMember(decl: ClassDecl, name: String): Any? {
+        if (decl.kind == ClassKind.ENUM) {
+            enumEntries(decl).firstOrNull { it.name == name }?.let { return it }
+            if (name == "entries") return enumEntries(decl)
+        }
+        return decl.members.filterIsInstance<ClassDecl>().firstOrNull { it.name == name }
+            ?.let { if (it.kind == ClassKind.OBJECT) objectInstance(it) else ClassRef(it) }
+    }
+
+    /** Classes that declare an object as a member, e.g. a companion's class, by the object's id and span. */
+    private val outerClasses = mutableMapOf<Pair<Int, Span>, ClassDecl?>()
+
+    /** The class that declares the object [decl] as a member, or null for top-level and non-object classes. */
+    private fun outerClassOf(decl: ClassDecl): ClassDecl? {
+        if (decl.kind != ClassKind.OBJECT) return null
+        val key = decl.id to decl.span
+        if (key in outerClasses) return outerClasses[key]
+        fun find(decls: List<Decl>): ClassDecl? {
+            for (d in decls) {
+                if (d !is ClassDecl) continue
+                if (d.members.any { it === decl }) return d
+                find(d.members)?.let { return it }
+            }
+            return null
+        }
+        return find(scopeOf(decl).program.declarations).also { outerClasses[key] = it }
     }
 
     /** Value of an identifier: local variable, implicit receiver member, top-level declaration, registry value or builtin. */
@@ -979,6 +1059,13 @@ public class Interpreter(
                 findGetter(receiver.decl, name)?.let { return evalGetter(it, receiver) }
                 if (receiver is EnumValue && name == "name") return receiver.name
                 if (receiver is EnumValue && name == "ordinal") return receiver.ordinal
+                // Inside a class, members of its companion object are visible without a qualifier, and inside a
+                // companion object, the entries and nested classes of its class.
+                companion(receiver.decl)?.takeIf { it !== receiver }?.let { companion ->
+                    val value = tryGetMember(companion, name)
+                    if (value !== Unresolved) return value
+                }
+                outerClassOf(receiver.decl)?.let { outer -> staticMember(outer, name)?.let { return it } }
             }
 
             is ClassRef -> {
@@ -997,14 +1084,7 @@ public class Interpreter(
             }
         }
         extensionProperties
-            .firstOrNull { p ->
-                p.name == name && p.receiver?.let {
-                    isInstance(
-                        receiver,
-                        it.text
-                    )
-                } == true
-            }
+            .firstOrNull { p -> p.name == name && isReceiverOf(receiver, p) }
             ?.let { return evalGetter(it, receiver) }
         registry.findMember(receiver, name, CallShape.None)
             ?.let { return it.binding(receiver, Args(it.signature, emptyMap(), emptyList(), this)) }
@@ -1171,7 +1251,8 @@ public class Interpreter(
         while (i < statements.size) {
             val statement = statements[i]
             val result = execC(statement, env)
-            if (result is Jump) {
+            // A `return` whose value failed stops the block with the error, so callers don't get `Unit`.
+            if (result is Jump || (statement is ReturnStmt && result is ErrorValue)) {
                 stopped = result
                 i = statements.size
             }
@@ -1449,6 +1530,7 @@ public class Interpreter(
             is BoolLit -> expr.value
             is NullLit -> null
             is ErrorExpr -> throw InterpreterException("Invalid code")
+            is ObjectExpr -> createObject(expr.decl, env)
             is ThisExpr -> thisValue(env)
             is StringTemplate -> {
                 val sb = StringBuilder()
@@ -1681,15 +1763,7 @@ public class Interpreter(
             if (receiver.hasField(name)) return null
             findGetter(receiver.decl, name)?.let { return it }
         }
-        return extensionProperties.firstOrNull { p ->
-            p.name == name && p.receiver?.let { type ->
-                try {
-                    isInstance(receiver, type.text)
-                } catch (_: InterpreterException) {
-                    false // a receiver type that is not known here
-                }
-            } == true
-        }
+        return extensionProperties.firstOrNull { p -> p.name == name && isReceiverOf(receiver, p) }
     }
 
     /**
@@ -1699,7 +1773,8 @@ public class Interpreter(
     @Composable
     private fun evalGetterC(property: PropertyDecl, receiver: Any?): Any? {
         val getter = property.getter ?: return showIfError(fail("Property '${property.name}' has no getter"))
-        val result = evalBlockC(getter, scopeOf(property).root.child(receiver))
+        val base = memberClosure(receiver, property) ?: scopeOf(property).root
+        val result = evalBlockC(getter, base.child(receiver))
         if (result is ErrorValue) return result
         return showIfError(guard { functionResult(result) })
     }
