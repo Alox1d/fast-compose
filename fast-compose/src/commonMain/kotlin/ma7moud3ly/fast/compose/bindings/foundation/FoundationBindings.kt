@@ -391,7 +391,8 @@ private fun Registry.modifiers() {
         when (val scope = a.receivers.firstOrNull { it is RowScope || it is ColumnScope }) {
             is RowScope -> with(scope) { m.weight(weight, fill) }
             is ColumnScope -> with(scope) { m.weight(weight, fill) }
-            else -> throw InterpreterException("Modifier.weight is only available in Row or Column")
+            // Kotlin wouldn't compile this; in previews the parent is often a stand-in container, so it is left out.
+            else -> m.also { a.warn("Modifier.weight is only available in Row or Column; it is left out") }
         }
     }
     member<Modifier>("align(alignment)") { m, a ->
@@ -401,7 +402,7 @@ private fun Registry.modifiers() {
             is RowScope -> if (alignment is Alignment.Vertical) with(scope) { m.align(alignment) } else null
             is ColumnScope -> if (alignment is Alignment.Horizontal) with(scope) { m.align(alignment) } else null
             else -> null
-        } ?: throw InterpreterException("Modifier.align is not available here")
+        } ?: m.also { a.warn("Modifier.align is not available here; it is left out") }
     }
     member<Modifier>("shadow(elevation, shape, clip, ambientColor, spotColor)") { m, a ->
         val elevation = a.dp("elevation", 0.dp)

@@ -233,6 +233,16 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun scopeModifiersOutsideTheirScopeAreLeftOut() {
+        val problems = mutableListOf<RuntimeError>()
+        val code = "fun test() = Modifier.weight(1f).align(Alignment.Center) == Modifier"
+        val program = KotlinParser.parse(code).program
+        assertEquals(true, Interpreter(program, registry, onError = { problems += it }).call("test"))
+        assertEquals(2, problems.size, problems.toString())
+        assertTrue(problems.all { it.isWarning }, problems.toString())
+    }
+
+    @Test
     fun systemBarCodeIsSilent() {
         val problems = mutableListOf<RuntimeError>()
         val code = """

@@ -55,6 +55,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Badge
@@ -372,13 +373,31 @@ private fun Registry.inputs() {
     composable("OutlinedTextField(value, onValueChange, modifier, enabled, readOnly, textStyle, label, placeholder, leadingIcon, trailingIcon, prefix, suffix, supportingText, isError, visualTransformation, keyboardOptions, keyboardActions, singleLine, maxLines, minLines, *, shape, colors)") { a -> MaterialTextField(a, outlined = true) }
     value("TextFieldDefaults", TextFieldDefaults)
     composableMember<TextFieldDefaults>(
-        "colors(focusedTextColor, unfocusedTextColor, focusedContainerColor, unfocusedContainerColor, cursorColor, " +
-            "focusedIndicatorColor, unfocusedIndicatorColor, focusedLabelColor, unfocusedLabelColor)",
+        "colors(focusedTextColor, unfocusedTextColor, disabledTextColor, errorTextColor, focusedContainerColor, " +
+            "unfocusedContainerColor, disabledContainerColor, errorContainerColor, cursorColor, " +
+            "errorCursorColor, selectionColors, focusedIndicatorColor, unfocusedIndicatorColor, " +
+            "disabledIndicatorColor, errorIndicatorColor, focusedLeadingIconColor, unfocusedLeadingIconColor, " +
+            "disabledLeadingIconColor, errorLeadingIconColor, focusedTrailingIconColor, " +
+            "unfocusedTrailingIconColor, disabledTrailingIconColor, errorTrailingIconColor, focusedLabelColor, " +
+            "unfocusedLabelColor, disabledLabelColor, errorLabelColor, focusedPlaceholderColor, " +
+            "unfocusedPlaceholderColor, disabledPlaceholderColor, errorPlaceholderColor, " +
+            "focusedSupportingTextColor, unfocusedSupportingTextColor, disabledSupportingTextColor, " +
+            "errorSupportingTextColor, focusedPrefixColor, unfocusedPrefixColor, disabledPrefixColor, " +
+            "errorPrefixColor, focusedSuffixColor, unfocusedSuffixColor, disabledSuffixColor, errorSuffixColor)",
     ) { _, a -> a.textFieldColors(TextFieldDefaults.colors()) }
     value("OutlinedTextFieldDefaults", OutlinedTextFieldDefaults)
     composableMember<OutlinedTextFieldDefaults>(
-        "colors(focusedTextColor, unfocusedTextColor, focusedContainerColor, unfocusedContainerColor, cursorColor, " +
-            "focusedBorderColor, unfocusedBorderColor, focusedLabelColor, unfocusedLabelColor)",
+        "colors(focusedTextColor, unfocusedTextColor, disabledTextColor, errorTextColor, focusedContainerColor, " +
+            "unfocusedContainerColor, disabledContainerColor, errorContainerColor, cursorColor, " +
+            "errorCursorColor, selectionColors, focusedBorderColor, unfocusedBorderColor, disabledBorderColor, " +
+            "errorBorderColor, focusedLeadingIconColor, unfocusedLeadingIconColor, disabledLeadingIconColor, " +
+            "errorLeadingIconColor, focusedTrailingIconColor, unfocusedTrailingIconColor, " +
+            "disabledTrailingIconColor, errorTrailingIconColor, focusedLabelColor, unfocusedLabelColor, " +
+            "disabledLabelColor, errorLabelColor, focusedPlaceholderColor, unfocusedPlaceholderColor, " +
+            "disabledPlaceholderColor, errorPlaceholderColor, focusedSupportingTextColor, " +
+            "unfocusedSupportingTextColor, disabledSupportingTextColor, errorSupportingTextColor, " +
+            "focusedPrefixColor, unfocusedPrefixColor, disabledPrefixColor, errorPrefixColor, " +
+            "focusedSuffixColor, unfocusedSuffixColor, disabledSuffixColor, errorSuffixColor)",
     ) { _, a -> a.textFieldColors(OutlinedTextFieldDefaults.colors()) }
     composable("Slider(value, onValueChange, modifier, enabled, valueRange, steps, onValueChangeFinished, colors)") { a ->
         Slider(
@@ -562,16 +581,51 @@ private fun MaterialTextField(a: Args, outlined: Boolean) {
 }
 
 /** [base] with the colors passed by name; colors that are not passed keep their value in [base]. */
+/** [base] with the colors passed to `TextFieldDefaults.colors` or `OutlinedTextFieldDefaults.colors` (borders are indicators). */
 private fun Args.textFieldColors(base: TextFieldColors): TextFieldColors = base.copy(
     focusedTextColor = color("focusedTextColor"),
     unfocusedTextColor = color("unfocusedTextColor"),
+    disabledTextColor = color("disabledTextColor"),
+    errorTextColor = color("errorTextColor"),
     focusedContainerColor = color("focusedContainerColor"),
     unfocusedContainerColor = color("unfocusedContainerColor"),
+    disabledContainerColor = color("disabledContainerColor"),
+    errorContainerColor = color("errorContainerColor"),
     cursorColor = color("cursorColor"),
+    errorCursorColor = color("errorCursorColor"),
+    textSelectionColors = typedOrNull<TextSelectionColors>("selectionColors") ?: base.textSelectionColors,
     focusedIndicatorColor = color(if (has("focusedBorderColor")) "focusedBorderColor" else "focusedIndicatorColor"),
     unfocusedIndicatorColor = color(if (has("unfocusedBorderColor")) "unfocusedBorderColor" else "unfocusedIndicatorColor"),
+    disabledIndicatorColor = color(if (has("disabledBorderColor")) "disabledBorderColor" else "disabledIndicatorColor"),
+    errorIndicatorColor = color(if (has("errorBorderColor")) "errorBorderColor" else "errorIndicatorColor"),
+    focusedLeadingIconColor = color("focusedLeadingIconColor"),
+    unfocusedLeadingIconColor = color("unfocusedLeadingIconColor"),
+    disabledLeadingIconColor = color("disabledLeadingIconColor"),
+    errorLeadingIconColor = color("errorLeadingIconColor"),
+    focusedTrailingIconColor = color("focusedTrailingIconColor"),
+    unfocusedTrailingIconColor = color("unfocusedTrailingIconColor"),
+    disabledTrailingIconColor = color("disabledTrailingIconColor"),
+    errorTrailingIconColor = color("errorTrailingIconColor"),
     focusedLabelColor = color("focusedLabelColor"),
     unfocusedLabelColor = color("unfocusedLabelColor"),
+    disabledLabelColor = color("disabledLabelColor"),
+    errorLabelColor = color("errorLabelColor"),
+    focusedPlaceholderColor = color("focusedPlaceholderColor"),
+    unfocusedPlaceholderColor = color("unfocusedPlaceholderColor"),
+    disabledPlaceholderColor = color("disabledPlaceholderColor"),
+    errorPlaceholderColor = color("errorPlaceholderColor"),
+    focusedSupportingTextColor = color("focusedSupportingTextColor"),
+    unfocusedSupportingTextColor = color("unfocusedSupportingTextColor"),
+    disabledSupportingTextColor = color("disabledSupportingTextColor"),
+    errorSupportingTextColor = color("errorSupportingTextColor"),
+    focusedPrefixColor = color("focusedPrefixColor"),
+    unfocusedPrefixColor = color("unfocusedPrefixColor"),
+    disabledPrefixColor = color("disabledPrefixColor"),
+    errorPrefixColor = color("errorPrefixColor"),
+    focusedSuffixColor = color("focusedSuffixColor"),
+    unfocusedSuffixColor = color("unfocusedSuffixColor"),
+    disabledSuffixColor = color("disabledSuffixColor"),
+    errorSuffixColor = color("errorSuffixColor"),
 )
 
 /** A `0f..1f`-style range argument, or `0f..1f` when it is missing. */
