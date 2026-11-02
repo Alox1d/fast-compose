@@ -35,7 +35,8 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
   empty list), with a warning, so sample data still builds.
 - **Platform APIs.** Previews report `Build.VERSION.SDK_INT` 30 (so dynamic colors stay off), and set
   `LocalInspectionMode` to `true`. `Integer`, `Locale`, `kotlin.time.Clock`, `Random`, `Regex` and `StringBuilder`
-  work; `Context`, `View`, lifecycle owners and `java.time` run as stand-ins. Rounded, Sharp and TwoTone icons show
+  work; `Context`, `View` and `java.time` run as stand-ins. The lifecycle is always resumed, and window size
+  classes come from the preview frame's size. Paging data built from lists (`PagingData.from`) shows as loaded. Rounded, Sharp and TwoTone icons show
   the Filled icon of the same name.
 - **Types are not checked.** Type annotations are parsed and used for overloads and `is` checks, but a wrong type is
   reported when the code runs, not before.

@@ -57,7 +57,17 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isAltPressed
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.isMetaPressed
+import androidx.compose.ui.input.key.isShiftPressed
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.utf16CodePoint
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
@@ -95,6 +105,9 @@ import ma7moud3ly.fast.compose.interpreter.Registry
 
 /** `LinkAnnotation.Url` and `LinkAnnotation.Clickable`. */
 private object LinkAnnotations
+
+/** `Key.A`, `Key.Enter`, … */
+private object Keys
 
 /** `PointerIcon.Default`, `Hand`, `Text` and `Crosshair`. */
 private object PointerIcons
@@ -278,9 +291,7 @@ private fun Registry.focusAndPointer() {
     member<Modifier>("focusable(enabled, interactionSource)") { m, a ->
         m.focusable(a.boolean("enabled", true), a.typedOrNull<MutableInteractionSource>("interactionSource"))
     }
-    // Key events are not bound, so key handlers never consume keys.
-    member<Modifier>("onPreviewKeyEvent(onPreviewKeyEvent)") { m, _ -> m.onPreviewKeyEvent { false } }
-    member<Modifier>("onKeyEvent(onKeyEvent)") { m, _ -> m.onKeyEvent { false } }
+    keyEvents()
 
     value("PointerIcon", PointerIcons)
     type<PointerIcon>("PointerIcon")
@@ -302,6 +313,50 @@ private fun Registry.focusAndPointer() {
         )
     }
     composableMember<InteractionSource>("collectIsDraggedAsState()") { source, _ -> source.collectIsDraggedAsState() }
+}
+
+/** Key events: `onKeyEvent`, `onPreviewKeyEvent`, `KeyEvent.key`, `type`, modifier keys, and common `Key`s. */
+private fun Registry.keyEvents() {
+    member<Modifier>("onPreviewKeyEvent(onPreviewKeyEvent)") { m, a ->
+        val handler = a.function1("onPreviewKeyEvent")
+        m.onPreviewKeyEvent { handler(it) == true }
+    }
+    member<Modifier>("onKeyEvent(onKeyEvent)") { m, a ->
+        val handler = a.function1("onKeyEvent")
+        m.onKeyEvent { handler(it) == true }
+    }
+    type<KeyEvent>("KeyEvent")
+    properties<KeyEvent>(
+        "key" to { it.key },
+        "type" to { it.type },
+        "isCtrlPressed" to { it.isCtrlPressed },
+        "isMetaPressed" to { it.isMetaPressed },
+        "isShiftPressed" to { it.isShiftPressed },
+        "isAltPressed" to { it.isAltPressed },
+        "utf16CodePoint" to { it.utf16CodePoint },
+    )
+    value("KeyEventType", KeyEventType.Companion)
+    constants<KeyEventType.Companion>("KeyDown" to KeyEventType.KeyDown, "KeyUp" to KeyEventType.KeyUp, "Unknown" to KeyEventType.Unknown)
+    value("Key", Keys)
+    constants<Keys>(
+        "A" to Key.A, "B" to Key.B, "C" to Key.C, "D" to Key.D, "E" to Key.E, "F" to Key.F, "G" to Key.G, "H" to
+        Key.H, "I" to Key.I, "J" to Key.J, "K" to Key.K, "L" to Key.L, "M" to Key.M, "N" to Key.N, "O" to Key.O, "P"
+        to Key.P, "Q" to Key.Q, "R" to Key.R, "S" to Key.S, "T" to Key.T, "U" to Key.U, "V" to Key.V, "W" to Key.W,
+        "X" to Key.X, "Y" to Key.Y, "Z" to Key.Z, "Zero" to Key.Zero, "One" to Key.One, "Two" to Key.Two, "Three" to
+        Key.Three, "Four" to Key.Four, "Five" to Key.Five, "Six" to Key.Six, "Seven" to Key.Seven, "Eight" to
+        Key.Eight, "Nine" to Key.Nine, "Enter" to Key.Enter, "Escape" to Key.Escape, "Tab" to Key.Tab, "Backspace" to
+        Key.Backspace, "Delete" to Key.Delete, "Spacebar" to Key.Spacebar, "Insert" to Key.Insert, "DirectionUp" to
+        Key.DirectionUp, "DirectionDown" to Key.DirectionDown, "DirectionLeft" to Key.DirectionLeft, "DirectionRight"
+        to Key.DirectionRight, "PageUp" to Key.PageUp, "PageDown" to Key.PageDown, "MoveHome" to Key.MoveHome,
+        "MoveEnd" to Key.MoveEnd, "ShiftLeft" to Key.ShiftLeft, "ShiftRight" to Key.ShiftRight, "CtrlLeft" to
+        Key.CtrlLeft, "CtrlRight" to Key.CtrlRight, "AltLeft" to Key.AltLeft, "AltRight" to Key.AltRight, "MetaLeft"
+        to Key.MetaLeft, "MetaRight" to Key.MetaRight, "Comma" to Key.Comma, "Period" to Key.Period, "Slash" to
+        Key.Slash, "Minus" to Key.Minus, "Equals" to Key.Equals, "Plus" to Key.Plus, "Semicolon" to Key.Semicolon,
+        "Apostrophe" to Key.Apostrophe, "Grave" to Key.Grave, "LeftBracket" to Key.LeftBracket, "RightBracket" to
+        Key.RightBracket, "Backslash" to Key.Backslash, "F1" to Key.F1, "F2" to Key.F2, "F3" to Key.F3, "F4" to
+        Key.F4, "F5" to Key.F5, "F6" to Key.F6, "F7" to Key.F7, "F8" to Key.F8, "F9" to Key.F9, "F10" to Key.F10,
+        "F11" to Key.F11, "F12" to Key.F12
+    )
 }
 
 private fun Registry.easings() {

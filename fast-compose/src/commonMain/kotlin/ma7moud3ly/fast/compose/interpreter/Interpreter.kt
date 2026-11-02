@@ -218,6 +218,8 @@ public class Interpreter(
 
         is ClassRef -> instantiate(fn.decl, args)
         is MemberRef -> invokeMemberRef(fn, args)
+        is PrecomputedLambda -> fn.result(args.positional)
+        is Function1<*, *> -> @Suppress("UNCHECKED_CAST") (fn as (Any?) -> Any?)(args.positional.firstOrNull())
         is StandIn -> fn
         is ComposableSlot -> throw composableFromPlain(fn.toString())
         is Function0<*> -> fn()
@@ -930,6 +932,9 @@ public class Interpreter(
                 null
             )
         }
+        if (name in LAMBDA_COLLECTION_FUNCTIONS && args.trailing is LambdaValue && isIterable(receiver)) {
+            return Target.Intrinsic(name, receiver)
+        }
         if (name in MEMBER_INTRINSICS && (args.trailing != null || args.positional.size == 1)) {
             if (name !in ITERATING_INTRINSICS || isIterable(receiver)) return Target.Intrinsic(
                 name,
@@ -1313,9 +1318,24 @@ public class Interpreter(
                 Unit
             }
 
+            in LAMBDA_COLLECTION_FUNCTIONS -> builtinMember(receiver, target.name, args)
             else -> throw unresolved(target.name)
         }
     }
+
+    /** A builtin member such as `map { }`, or a missing member when the builtins don't have it. */
+    private fun builtinMember(receiver: Any?, name: String, args: CallArgs): Any? {
+        val value = builtins.member(receiver, name, args)
+        return if (value === Unresolved) missingMember(receiver, name) else value
+    }
+
+    /**
+     * Arguments of a collection function with its trailing lambda replaced by results already computed for [items],
+     * in order. Lets the builtin run its own logic while the lambda ran in the composable or suspend evaluator, where
+     * Kotlin allows composable and suspend calls inside inline lambdas.
+     */
+    private fun withResults(args: CallArgs, name: String, items: List<Any?>, results: List<Any?>): CallArgs =
+        CallArgs(args.positional, args.named, PrecomputedLambda(items, results, name in INDEXED_LAMBDAS), args.leading)
 
     @Composable
     private fun intrinsicC(target: Target.Intrinsic, args: CallArgs): Any? {
@@ -1363,6 +1383,18 @@ public class Interpreter(
                         if (indexed) listOf(i, item) else listOf(item)
                     )
                 }
+            }
+
+            in LAMBDA_COLLECTION_FUNCTIONS -> {
+                val items = guard { iterate(receiver).toList() }
+                if (items is ErrorValue) return showIfError(items)
+                val indexed = target.name in INDEXED_LAMBDAS
+                val results = ArrayList<Any?>()
+                val stop = loopC(items as List<*>) { item, i ->
+                    invokeComposable(fn, NoReceiver, if (indexed) listOf(i, item) else listOf(item)).also { results += it }
+                }
+                if (stop is Jump || stop is ErrorValue) return stop
+                showIfError(guard { builtinMember(receiver, target.name, withResults(args, target.name, items, results)) })
             }
 
             else -> showIfError(fail("Unresolved reference '${target.name}'"))
@@ -1544,6 +1576,8 @@ public class Interpreter(
         when {
             value is ErrorValue -> env.define(stmt.name, value, stmt.isVar)
             delegate != null -> env.defineDelegated(stmt.name, value)
+            // `val x: T` assigned later, e.g. in the branches of a `when`, as in plain code.
+            initializer == null -> env.define(stmt.name, null, mutable = true)
             else -> env.define(stmt.name, value, stmt.isVar)
         }
         return Unit
@@ -2815,6 +2849,18 @@ public class Interpreter(
                 Unit
             }
 
+            in LAMBDA_COLLECTION_FUNCTIONS -> {
+                val items = iterate(receiver).toList()
+                val indexed = target.name in INDEXED_LAMBDAS
+                val results = ArrayList<Any?>(items.size)
+                for ((i, item) in items.withIndex()) {
+                    val result = invokeSuspend(fn, NoReceiver, if (indexed) listOf(i, item) else listOf(item))
+                    if (result is Jump) return result
+                    results += result
+                }
+                builtinMember(receiver, target.name, withResults(args, target.name, items, results))
+            }
+
             else -> throw unresolved(target.name)
         }
     }
@@ -2914,5 +2960,18 @@ public class Interpreter(
         )
         val MEMBER_INTRINSICS = setOf("let", "also", "apply", "run", "forEach", "forEachIndexed")
         val ITERATING_INTRINSICS = setOf("forEach", "forEachIndexed")
+
+        /**
+         * Collection functions whose trailing lambda runs in the caller's evaluator, so it may make composable or
+         * suspend calls, as Kotlin allows in inline lambdas; the builtins do the rest.
+         */
+        val LAMBDA_COLLECTION_FUNCTIONS = setOf(
+            "map", "mapIndexed", "mapNotNull", "flatMap", "filter", "filterNot", "filterIndexed", "any", "all", "none",
+            "count", "sumOf", "maxByOrNull", "minByOrNull", "sortedBy", "sortedByDescending", "groupBy", "associateWith",
+            "associateBy", "joinToString", "first", "last", "firstOrNull", "lastOrNull", "find",
+        )
+
+        /** Of [LAMBDA_COLLECTION_FUNCTIONS], those whose lambda takes the index first. */
+        val INDEXED_LAMBDAS = setOf("mapIndexed", "filterIndexed")
     }
 }

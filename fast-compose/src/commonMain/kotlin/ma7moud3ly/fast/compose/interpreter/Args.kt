@@ -211,6 +211,18 @@ public class Args internal constructor(
         return { interpreter.invokeSuspendSafely(fn, NoReceiver, listOf(it)) }
     }
 
+    /** Suspend lambda with one parameter that returns a value, e.g. `flow.map { value -> … }`; missing, it returns its argument. */
+    public fun suspendFunction1(name: String): suspend (Any?) -> Any? {
+        val fn = lambda(name) ?: return { it }
+        return { interpreter.invokeSuspendSafely(fn, NoReceiver, listOf(it)) }
+    }
+
+    /** Suspend lambda with a receiver scope that returns a value, e.g. `withContext(context) { … }`. */
+    public fun <S> suspendCalculation(name: String): suspend S.() -> Any? {
+        val fn = lambda(name) ?: return { null }
+        return { interpreter.invokeSuspendSafely(fn, this, emptyList()) }
+    }
+
     /** Suspend lambda with a receiver scope, e.g. LaunchedEffect's `block: suspend CoroutineScope.() -> Unit`. Cancellation passes through. */
     public fun <S> suspendBlock(name: String = "block"): suspend S.() -> Unit {
         val fn = lambda(name) ?: return {}

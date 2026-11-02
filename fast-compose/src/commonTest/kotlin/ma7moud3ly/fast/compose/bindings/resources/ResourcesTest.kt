@@ -40,6 +40,32 @@ class ResourcesTest {
     }
 
     @Test
+    fun pluralsAndStringArrays() {
+        val strings = StringsXml.parse(
+            """
+            <resources>
+                <plurals name="items">
+                    <item quantity="one">%d item</item>
+                    <item quantity="other">%d items</item>
+                </plurals>
+                <string-array name="days">
+                    <item>Sat</item>
+                    <item>Sun</item>
+                </string-array>
+                <string name="title">Title</string>
+            </resources>
+            """,
+        )
+        assertEquals("%d items", strings[StringsXml.pluralKey("items", "other")])
+        assertEquals(listOf("Sat", "Sun"), listOf(0, 1).map { strings[StringsXml.arrayKey("days", it)] })
+        assertEquals("Title", strings["title"])
+        assertEquals(listOf("one", "other", "zero", "two", "few", "many"), listOf(
+            pluralQuantity(1, null), pluralQuantity(0, "en"), pluralQuantity(0, "ar"),
+            pluralQuantity(2, "ar"), pluralQuantity(5, "ar-EG"), pluralQuantity(11, "ar"),
+        ))
+    }
+
+    @Test
     fun fontsFromResources() {
         val resources = MemoryResources().apply { put("src/main/res/font/inter.ttf", byteArrayOf(0, 1, 0, 0)) }
         val program = KotlinParser.parse("fun test() = listOf(Font(R.font.inter, FontWeight.Bold), Font(R.font.missing))").program

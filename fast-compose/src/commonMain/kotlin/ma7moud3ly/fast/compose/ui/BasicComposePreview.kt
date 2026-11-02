@@ -30,9 +30,11 @@ import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ma7moud3ly.fast.compose.bindings.foundation.LocalBasicTextColor
+import ma7moud3ly.fast.compose.bindings.foundation.LocalPreviewWindowSize
 import ma7moud3ly.fast.compose.bindings.foundation.LocalPreviewDarkTheme
 import ma7moud3ly.fast.compose.bindings.resources.LocalResourceEnvironment
 import ma7moud3ly.fast.compose.bindings.resources.LocalResourceProvider
@@ -144,6 +146,10 @@ internal fun PreviewList(
                                 LocalResourceEnvironment provides ResourceEnvironment(config.locale, config.darkTheme),
                                 LocalPreviewDarkTheme provides config.darkTheme,
                                 LocalInspectionMode provides true,
+                                LocalPreviewWindowSize provides DpSize(
+                                    config.widthDp?.dp ?: maxFrameWidth,
+                                    config.heightDp?.dp ?: maxFrameHeight,
+                                ),
                             ) {
                                 interpreter.Render(function)
                             }

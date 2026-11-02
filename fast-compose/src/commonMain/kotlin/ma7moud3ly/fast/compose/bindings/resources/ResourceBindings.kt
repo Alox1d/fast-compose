@@ -66,6 +66,35 @@ private fun Registry.resources() {
         image as? ImageBitmap
     }
     function("Font(resId, weight, style, *, resource)") { a -> font(a) }
+    composable("pluralStringResource(id, count, vararg formatArgs, *, resource, quantity)") { a ->
+        val ref = a.resourceRef()
+        val environment = resourceEnvironment()
+        val provider = LocalResourceProvider.current
+        val count = a.int("count", a.int("quantity", 0))
+        val text = ref?.let {
+            provider.string(StringsXml.pluralKey(it.name, pluralQuantity(count, environment.locale)), environment)
+                ?: provider.string(StringsXml.pluralKey(it.name, "other"), environment)
+        }
+        when {
+            ref == null -> "".also { a.report("pluralStringResource needs a resource such as R.plurals.items or Res.plurals.items") }
+            text == null && provider.isLoading("string", ref.name, environment) -> ""
+            text == null -> "[${ref.name}]".also { a.warn("Plurals resource '${ref.name}' not found") }
+            else -> formatResource(text, a.varargs("formatArgs"))
+        }
+    }
+    composable("stringArrayResource(id, *, resource)") { a ->
+        val ref = a.resourceRef()
+        val environment = resourceEnvironment()
+        val provider = LocalResourceProvider.current
+        if (ref == null) {
+            a.report("stringArrayResource needs a resource such as R.array.items or Res.array.items")
+            emptyList()
+        } else {
+            generateSequence(0) { it + 1 }.map { provider.string(StringsXml.arrayKey(ref.name, it), environment) }
+                .takeWhile { it != null }.toList()
+                .also { if (it.isEmpty() && !provider.isLoading("string", ref.name, environment)) a.warn("String array '${ref.name}' not found") }
+        }
+    }
     composable("colorResource(id)") { a ->
         val ref = a.resourceRef()
         val environment = resourceEnvironment()
@@ -94,6 +123,26 @@ private fun Registry.resources() {
 }
 
 private fun Args.resourceRef(): ResourceRef? = (get("id") ?: get("resource")) as? ResourceRef
+
+/**
+ * Plural form of [count] in [locale], as in CLDR: Arabic has `zero`, `one`, `two`, `few`, `many`; French and
+ * Portuguese use `one` for 0 and 1; other languages `one` for 1. Everything else is `other`.
+ */
+internal fun pluralQuantity(count: Int, locale: String?): String {
+    val n = count.let { if (it < 0) -it else it }
+    return when (locale?.substringBefore('-')?.substringBefore('_')) {
+        "ar" -> when {
+            n == 0 -> "zero"
+            n == 1 -> "one"
+            n == 2 -> "two"
+            n % 100 in 3..10 -> "few"
+            n % 100 in 11..99 -> "many"
+            else -> "other"
+        }
+        "fr", "pt" -> if (n <= 1) "one" else "other"
+        else -> if (n == 1) "one" else "other"
+    }
+}
 
 /** [LocalResourceEnvironment] with the current density. */
 @Composable

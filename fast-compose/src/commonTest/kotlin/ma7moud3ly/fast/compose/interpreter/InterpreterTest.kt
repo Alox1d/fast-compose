@@ -210,6 +210,27 @@ class InterpreterTest {
     }
 
     @Test
+    fun suspendCallsInsideCollectionLambdas() = runTest {
+        val code = """
+            suspend fun twice(n: Int): Int {
+                delay(1)
+                return n * 2
+            }
+
+            suspend fun test(): List<Any> = listOf(
+                listOf(1, 2, 3).map { twice(it) },
+                listOf(1, 2, 3, 4).filter { twice(it) > 4 },
+                listOf(3, 1, 2).sortedBy { twice(it) },
+                listOf(1, 2).mapIndexed { i, v -> twice(i) + v },
+            )
+        """.trimIndent()
+        assertEquals(
+            listOf(listOf(2, 4, 6), listOf(3, 4), listOf(1, 2, 3), listOf(1, 4)),
+            interpreter(code, delayRegistry).callSuspend("test"),
+        )
+    }
+
+    @Test
     fun whenGuardsAndSubjectNameInSuspendCode() = runTest {
         val code = """
             suspend fun test(): String {

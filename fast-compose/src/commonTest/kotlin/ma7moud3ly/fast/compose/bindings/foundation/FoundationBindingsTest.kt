@@ -215,6 +215,38 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun flowsAndCoroutines() = runTest {
+        val code = """
+            suspend fun test(): List<Any?> {
+                val numbers = flow {
+                    emit(1)
+                    emit(2)
+                    emit(3)
+                }
+                val doubled = numbers.map { it * 2 }.filter { it > 2 }.toList()
+                val first = flowOf("a", "b").first()
+                val inContext = withContext(Dispatchers.IO) { "ctx" }
+                return listOf(doubled, first, inContext)
+            }
+        """.trimIndent()
+        assertEquals(listOf(listOf(4, 6), "a", "ctx"), Interpreter(KotlinParser.parse(code).program, registry).callSuspend("test"))
+    }
+
+    @Test
+    fun windowSizeClassesAndLifecycle() {
+        val code = """
+            fun test(): List<Any> = listOf(
+                WindowWidthSizeClass.COMPACT == WindowWidthSizeClass.Compact,
+                Lifecycle.State.RESUMED.isAtLeast(Lifecycle.State.STARTED),
+                WindowSizeClass.WIDTH_DP_MEDIUM_LOWER_BOUND,
+            )
+        """.trimIndent()
+        assertEquals(listOf(true, true, 600), run(code))
+        val size = PreviewWindowSizeClass(700f, 950f)
+        assertEquals(listOf(SizeClass.Medium, SizeClass.Expanded), listOf(size.width, size.height))
+    }
+
+    @Test
     fun delayTakesDurationsAndStandIns() = runTest {
         val code = """
             suspend fun test(): Int {

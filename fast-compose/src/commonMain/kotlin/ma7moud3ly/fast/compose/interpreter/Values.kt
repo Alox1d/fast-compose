@@ -174,6 +174,19 @@ internal class MemberRef(val type: String, val name: String, val env: Env) {
     override fun toString(): String = "$type::$name"
 }
 
+/**
+ * A lambda already run for each of [items], giving [results] in the same order. Called with an item, or with
+ * `(index, item)` when [indexed], it returns that item's result; equal items share the first one's.
+ */
+internal class PrecomputedLambda(private val items: List<Any?>, private val results: List<Any?>, private val indexed: Boolean) {
+    fun result(args: List<Any?>): Any? {
+        if (indexed) return results.getOrNull(args.firstOrNull() as? Int ?: -1)
+        val item = args.firstOrNull()
+        val index = items.indexOfFirst { it === item }.takeIf { it >= 0 } ?: items.indexOf(item)
+        return results.getOrNull(index)
+    }
+}
+
 /** A user class used as a value: `Screen.Home`, `Message::class`, companion access. */
 public class ClassRef internal constructor(public val decl: ClassDecl) {
     override fun toString(): String = "class ${decl.name}"

@@ -2,7 +2,9 @@
 detectTapGestures.onPress        # needs PressGestureScope (tryAwaitRelease)
 semantics.properties             # accessibility only, not shown in previews
 clearAndSetSemantics.properties  # accessibility only, not shown in previews
-onPreviewKeyEvent.onPreviewKeyEvent  # key events are not bound, so handlers never run
-onKeyEvent.onKeyEvent                # key events are not bound, so handlers never run
 dynamicLightColorScheme.context      # previews use the baseline scheme
 dynamicDarkColorScheme.context       # previews use the baseline scheme
+withContext.context                  # previews run the block where it is called
+calculateWindowSizeClass.activity    # the size comes from the preview frame
+addObserver.observer                 # the preview lifecycle never changes state
+removeObserver.observer              # the preview lifecycle never changes state

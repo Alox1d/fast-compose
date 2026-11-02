@@ -151,6 +151,8 @@ public object FoundationBindings : BindingPack {
         images()
         javaLang()
         platform()
+        flowExtras()
+        adaptiveExtras()
         uiExtras()
     }
 }
@@ -233,7 +235,8 @@ private fun Registry.layouts() {
         when (val items = a["items"] ?: a["count"]) {
             is Int -> scope.items(items, a.itemFunction("key", null)?.keys(), a.itemFunction("contentType", null) ?: { null }) { content(it) }
             is List<*> -> scope.items(items.size, a.itemFunction("key", items)?.keys(), a.itemFunction("contentType", items) ?: { null }) { content(items[it]) }
-            else -> a.report("items needs a count or a list")
+            // A count from an unbound API, e.g. paging data, shows no items, like a loop over a stand-in.
+            else -> if (!a.isStandIn("items") && !a.isStandIn("count")) a.report("items needs a count or a list")
         }
     }
     composable("key(vararg keys, block)") { a -> Keyed(a.varargs("keys"), a.content("block")) }
