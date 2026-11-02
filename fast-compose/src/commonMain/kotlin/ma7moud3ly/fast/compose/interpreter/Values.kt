@@ -46,16 +46,21 @@ internal class Jump(val kind: Kind, val value: Any? = null, val label: String? =
     enum class Kind { RETURN, BREAK, CONTINUE }
 }
 
-/** Property backed by a delegate: Compose [State] or [Lazy]. */
+/**
+ * Property backed by a delegate: Compose [State] or [Lazy]. A stand-in delegate, e.g. `by unboundApi()`, makes the
+ * property a stand-in: reads give it and writes are skipped.
+ */
 internal class Delegated(private val delegate: Any?) {
     fun get(): Any? = when (delegate) {
         is State<*> -> delegate.value
         is Lazy<*> -> delegate.value
+        is StandIn -> delegate
         else -> throw InterpreterException("Property delegate must be a State or Lazy, found ${typeName(delegate)}")
     }
 
     @Suppress("UNCHECKED_CAST")
     fun set(value: Any?) {
+        if (delegate is StandIn) return
         if (delegate !is MutableState<*>) throw InterpreterException("Property delegate is read-only")
         (delegate as MutableState<Any?>).value = value
     }

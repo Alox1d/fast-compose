@@ -40,6 +40,9 @@ internal fun Registry.pagers() {
         "pageCount" to { it.pageCount },
         "currentPageOffsetFraction" to { it.currentPageOffsetFraction },
         "isScrollInProgress" to { it.isScrollInProgress },
+        "interactionSource" to { it.interactionSource },
+        "canScrollForward" to { it.canScrollForward },
+        "canScrollBackward" to { it.canScrollBackward },
     )
     suspendMember<PagerState>("scrollToPage(page, pageOffsetFraction)") { state, a ->
         state.scrollToPage(a.int("page", 0), a.float("pageOffsetFraction", 0f))

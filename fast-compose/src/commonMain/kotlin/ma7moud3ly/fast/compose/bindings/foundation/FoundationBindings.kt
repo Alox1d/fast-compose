@@ -4,6 +4,7 @@ import ma7moud3ly.fast.compose.interpreter.BindingPack
 import ma7moud3ly.fast.compose.interpreter.InterpreterException
 import ma7moud3ly.fast.compose.interpreter.Registry
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -291,6 +292,14 @@ private fun Registry.state() {
     function("mutableStateOf(value)") { a -> mutableStateOf(a["value"]) }
     function("mutableIntStateOf(value)") { a -> mutableIntStateOf(a.int("value", 0)) }
     function("mutableFloatStateOf(value)") { a -> mutableFloatStateOf(a.float("value", 0f)) }
+    properties<LazyGridState>(
+        "firstVisibleItemIndex" to { it.firstVisibleItemIndex },
+        "firstVisibleItemScrollOffset" to { it.firstVisibleItemScrollOffset },
+        "isScrollInProgress" to { it.isScrollInProgress },
+        "canScrollForward" to { it.canScrollForward },
+        "canScrollBackward" to { it.canScrollBackward },
+        "interactionSource" to { it.interactionSource },
+    )
     function("mutableLongStateOf(value)") { a -> mutableLongStateOf(a.long("value", 0L)) }
     function("mutableDoubleStateOf(value)") { a -> mutableDoubleStateOf(a.typed<Number>("value", 0.0).toDouble()) }
     properties<IntState>("intValue" to { it.intValue })

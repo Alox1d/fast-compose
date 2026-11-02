@@ -189,6 +189,7 @@ private fun Registry.scrollStates() {
         "isScrollInProgress" to { it.isScrollInProgress },
         "canScrollForward" to { it.canScrollForward },
         "canScrollBackward" to { it.canScrollBackward },
+        "interactionSource" to { it.interactionSource },
     )
     suspendMember<LazyListState>("animateScrollToItem(index, scrollOffset)") { state, a ->
         state.animateScrollToItem(a.int("index", 0), a.int("scrollOffset", 0))
@@ -202,6 +203,7 @@ private fun Registry.scrollStates() {
         "value" to { it.value },
         "maxValue" to { it.maxValue },
         "isScrollInProgress" to { it.isScrollInProgress },
+        "interactionSource" to { it.interactionSource },
     )
     suspendMember<ScrollState>("animateScrollTo(value)") { state, a ->
         state.animateScrollTo(a.int("value", 0))

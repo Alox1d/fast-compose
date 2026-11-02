@@ -342,6 +342,24 @@ class InterpreterTest {
     }
 
     @Test
+    fun standInDelegatesAreStandIns() {
+        val (result, problems) = runWithProblems(
+            """
+            import io.lib.rememberThing
+
+            fun test(): String {
+                val dragged by rememberThing().collectIsDraggedAsState()
+                var count by rememberThing()
+                count = 3
+                return "" + dragged + "|" + (if (dragged) "yes" else "no")
+            }
+            """,
+        )
+        assertEquals("|no", result)
+        assertTrue(problems.all { it.isWarning }, problems.toString())
+    }
+
+    @Test
     fun missingMembersRunAsStandIns() {
         val (result, problems) = runWithProblems(
             """
