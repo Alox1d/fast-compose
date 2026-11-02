@@ -13,10 +13,14 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
 import ma7moud3ly.fast.compose.interpreter.Args
 import ma7moud3ly.fast.compose.interpreter.BindingPack
 import ma7moud3ly.fast.compose.interpreter.Registry
+import ma7moud3ly.fast.compose.interpreter.StandIn
 import org.jetbrains.compose.resources.decodeToImageBitmap
 import org.jetbrains.compose.resources.decodeToImageVector
 import kotlin.math.abs
@@ -35,7 +39,7 @@ private class ResourceType(val type: String)
 
 /**
  * Resources from `R` (Android) and `Res` (Compose Multiplatform): `painterResource`, `vectorResource`,
- * `imageResource`, `stringResource` and `colorResource`. Files, strings and colors come from [LocalResourceProvider], in the variant that fits
+ * `imageResource`, `stringResource`, `colorResource` and `Font`. Files, strings and colors come from [LocalResourceProvider], in the variant that fits
  * [LocalResourceEnvironment] and the current density; missing images draw a placeholder and missing strings show their name.
  */
 public object ResourceBindings : BindingPack {
@@ -61,6 +65,7 @@ private fun Registry.resources() {
         if (image != null && image !is ImageBitmap) a.report("imageResource needs a PNG, JPEG, WebP or BMP file, found a vector drawable")
         image as? ImageBitmap
     }
+    function("Font(resId, weight, style, *, resource)") { a -> font(a) }
     composable("colorResource(id)") { a ->
         val ref = a.resourceRef()
         val environment = resourceEnvironment()
@@ -124,6 +129,46 @@ private fun image(a: Args): Any? {
     }
     return result.getOrNull()
 }
+
+/** Key of the [ResourceProvider] in `Interpreter.hostValues`, for resources read outside composition such as fonts. */
+internal const val RESOURCES_HOST_VALUE: String = "resources"
+
+/**
+ * `Font(R.font.x, weight, style)` or `Font(Res.font.x, …)` from the font file's bytes. Fonts are often built outside
+ * composition (a top-level `FontFamily`), so the provider comes from the interpreter's host values. While the file
+ * loads, or when it is missing, a stand-in is returned, which `FontFamily` leaves out; the code runs again once it loads.
+ */
+private fun font(a: Args): Any {
+    val ref = (a["resId"] ?: a["resource"]) as? ResourceRef
+    if (ref == null) {
+        a.report("Font needs a resource such as R.font.inter or Res.font.inter")
+        return StandIn("Font")
+    }
+    val provider = a.hostValue(RESOURCES_HOST_VALUE) as? ResourceProvider ?: ResourceProvider.Empty
+    val environment = ResourceEnvironment()
+    val bytes = provider.bytes(ref.type, ref.name, environment)
+    return when {
+        bytes != null -> try {
+            platformFont("$ref#${bytes.contentHashCode()}", bytes, a.typed("weight", FontWeight.Normal), a.typed("style", FontStyle.Normal))
+        } catch (e: Exception) {
+            a.warn("Font '$ref' could not be loaded (${e.message}); the default font is used")
+            StandIn("Font")
+        }
+
+        provider.isLoading(ref.type, ref.name, environment) -> {
+            a.runAgainWhen { provider.bytes(ref.type, ref.name, environment) != null || !provider.isLoading(ref.type, ref.name, environment) }
+            StandIn("Font")
+        }
+
+        else -> {
+            a.warn("Font '$ref' not found; the default font is used")
+            StandIn("Font")
+        }
+    }
+}
+
+/** A font from the bytes of a TTF or OTF file; [identity] names it in the platform's font cache. */
+internal expect fun platformFont(identity: String, bytes: ByteArray, weight: FontWeight, style: FontStyle): Font
 
 /** Colors of the `colors.xml` matching [environment], by name; empty while it is read or when there is none. */
 @Composable

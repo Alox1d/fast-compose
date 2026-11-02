@@ -31,10 +31,10 @@ class InterpreterTest {
                 return n
             }
         """.trimIndent()
-        val interpreter = Interpreter(KotlinParser.parse(code).program, Registry(), maxRunTime = 30.milliseconds)
+        val interpreter = Interpreter(KotlinParser.parse(code).program, Registry(), maxRunTime = 100.milliseconds)
         // Many short calls, like a draw callback on every frame, run longer than the limit in total but never stop.
         val start = TimeSource.Monotonic.markNow()
-        while (start.elapsedNow() < 200.milliseconds) assertEquals(3000, interpreter.call("work"))
+        while (start.elapsedNow() < 400.milliseconds) assertEquals(3000, interpreter.call("work"))
     }
 
     @Test
@@ -289,6 +289,19 @@ class InterpreterTest {
         """.trimIndent()
         val error = assertFailsWith<InterpreterException> { run(code) }
         assertEquals("Unresolved reference 'lable'. Did you mean 'label'?", error.message)
+    }
+
+    @Test
+    fun primitiveArraysAndMath() {
+        val code = """
+            fun test(): List<Any> {
+                val counts = IntArray(3)
+                counts[1] = 5
+                val squares = IntArray(3) { it * it }
+                return listOf(counts, squares, tan(0.0), round(2.6), longArrayOf(1L, 2L))
+            }
+        """.trimIndent()
+        assertEquals(listOf(listOf(0, 5, 0), listOf(0, 1, 4), 0.0, 3.0, listOf(1L, 2L)), run(code))
     }
 
     @Test

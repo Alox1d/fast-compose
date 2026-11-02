@@ -1,11 +1,16 @@
 package ma7moud3ly.fast.compose.bindings.resources
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontWeight
+import ma7moud3ly.fast.compose.bindings.foundation.FoundationBindings
+import ma7moud3ly.fast.compose.interpreter.StandIn
 import ma7moud3ly.fast.compose.interpreter.Interpreter
 import ma7moud3ly.fast.compose.interpreter.Registry
 import ma7moud3ly.fast.compose.parser.KotlinParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 
 class ResourcesTest {
@@ -32,6 +37,20 @@ class ResourcesTest {
             mapOf("title" to "Hello, %1\$s!", "quote" to "\"Hi\" it's & me", "styled" to "Tap here", "empty" to ""),
             StringsXml.parse(xml),
         )
+    }
+
+    @Test
+    fun fontsFromResources() {
+        val resources = MemoryResources().apply { put("src/main/res/font/inter.ttf", byteArrayOf(0, 1, 0, 0)) }
+        val program = KotlinParser.parse("fun test() = listOf(Font(R.font.inter, FontWeight.Bold), Font(R.font.missing))").program
+        val registry = Registry().apply {
+            install(FoundationBindings)
+            install(ResourceBindings)
+        }
+        val interpreter = Interpreter(program, registry).apply { hostValues[RESOURCES_HOST_VALUE] = resources }
+        val (found, missing) = interpreter.call("test") as List<*>
+        assertEquals(FontWeight.Bold, assertIs<Font>(found).weight)
+        assertIs<StandIn>(missing)
     }
 
     @Test

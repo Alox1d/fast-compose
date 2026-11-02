@@ -1,6 +1,6 @@
 # Resources
 
-Code can use images and strings from Android `R` and Compose Multiplatform `Res`, as in an app:
+Code can use images, strings, colors and fonts from Android `R` and Compose Multiplatform `Res`, as in an app:
 
 ```kotlin
 Image(painterResource(R.drawable.logo), contentDescription = null)
@@ -75,10 +75,15 @@ Variants follow the preview's `@Preview` settings and screen density:
 
 ## Formats
 
-- **Images:** PNG, JPEG, WebP, BMP and vector drawable XML. SVG is not supported yet.
+- **Images:** PNG, JPEG, WebP, BMP and vector drawable XML. SVG is not supported yet. In vectors, `@color/…`,
+  `@android:color/…` and theme attributes (`?attr/…`, drawn black) are replaced by colors.
 - **Strings:** `strings.xml`, with `%s`, `%d`, `%.2f` and `%1$s` arguments.
+- **Colors:** `colors.xml`, read by `colorResource(R.color.x)` and by vector drawables.
+- **Fonts:** TTF and OTF files in `font/`, read by `Font(R.font.x, weight, style)` and `Font(Res.font.x, …)`.
 
 ## Missing files
 
 - A missing image draws a placeholder, and a missing string shows its name; both are logged as warnings.
 - While a file is being read, images show a placeholder and nothing is logged.
+- A missing font uses the default font. Fonts still being read do too, and the code runs again once they are read,
+  since a `FontFamily` is often a top-level value built only once.

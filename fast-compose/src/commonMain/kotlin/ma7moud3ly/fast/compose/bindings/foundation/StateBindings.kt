@@ -81,4 +81,7 @@ private fun Registry.flows() {
     }
     composableMember<StateFlow<*>>("collectAsState()") { flow, _ -> flow.collectAsState() }
     composableMember<Flow<*>>("collectAsState(initial)") { flow, a -> flow.collectAsState(a["initial"]) }
+    // Previews are always resumed, so collecting with the lifecycle is plain collecting.
+    composableMember<StateFlow<*>>("collectAsStateWithLifecycle()") { flow, _ -> flow.collectAsState() }
+    composableMember<Flow<*>>("collectAsStateWithLifecycle(initialValue)") { flow, a -> flow.collectAsState(a["initialValue"]) }
 }

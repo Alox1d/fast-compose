@@ -11,6 +11,12 @@ import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.tan
+import kotlin.math.atan2
+import kotlin.math.round
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.log10
 import kotlin.math.sqrt
 
 /** Subset of the Kotlin standard library. Every function returns [Unresolved] for names or receivers it does not support. */
@@ -49,7 +55,7 @@ internal class Builtins(private val interpreter: Interpreter) {
     fun global(name: String, args: CallArgs): Any? {
         val a = args.positional
         return when (name) {
-            "listOf", "arrayOf", "floatArrayOf", "intArrayOf" -> a
+            "listOf", "arrayOf", "floatArrayOf", "intArrayOf", "longArrayOf", "doubleArrayOf", "booleanArrayOf", "charArrayOf" -> a
             "mutableListOf", "arrayListOf" -> a.toMutableList()
             "emptyList", "emptyArray" -> emptyList<Any?>()
             "listOfNotNull" -> a.filterNotNull()
@@ -72,6 +78,16 @@ internal class Builtins(private val interpreter: Interpreter) {
             "sqrt" -> (a[0] as? Float)?.let { sqrt(it) } ?: sqrt(double(a[0]))
             "sin" -> (a[0] as? Float)?.let { sin(it) } ?: sin(double(a[0]))
             "cos" -> (a[0] as? Float)?.let { cos(it) } ?: cos(double(a[0]))
+            "tan" -> (a[0] as? Float)?.let { tan(it) } ?: tan(double(a[0]))
+            "atan2" -> atan2(double(a[0]), double(a[1]))
+            "round" -> (a[0] as? Float)?.let { round(it) } ?: round(double(a[0]))
+            "exp" -> exp(double(a[0]))
+            "ln" -> ln(double(a[0]))
+            "log10" -> log10(double(a[0]))
+            "IntArray", "LongArray", "FloatArray", "DoubleArray", "BooleanArray" -> {
+                val fn = args.trailing ?: args.positional.getOrNull(1)
+                MutableList(int(a[0])) { if (fn != null) call(fn, it) else emptyArrayValue(name) }
+            }
             "floor" -> floor(double(a[0]))
             "ceil" -> ceil(double(a[0]))
             "require" -> if (a[0] == true) Unit else throw IllegalArgumentException(
@@ -114,6 +130,15 @@ internal class Builtins(private val interpreter: Interpreter) {
 
             else -> if (isExceptionType(name)) exception(name, args) else Unresolved
         }
+    }
+
+    /** Initial element of a primitive array such as `IntArray(3)`: `0`, `0L`, `0f`, `0.0` or `false`. */
+    private fun emptyArrayValue(type: String): Any = when (type) {
+        "LongArray" -> 0L
+        "FloatArray" -> 0f
+        "DoubleArray" -> 0.0
+        "BooleanArray" -> false
+        else -> 0
     }
 
     /** Message from the lambda of `require(value) { "message" }`, or [default]. */

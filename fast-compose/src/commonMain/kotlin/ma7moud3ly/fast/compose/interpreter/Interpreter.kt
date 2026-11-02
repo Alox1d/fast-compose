@@ -2,6 +2,8 @@ package ma7moud3ly.fast.compose.interpreter
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Modifier
 import ma7moud3ly.fast.compose.parser.Span
 import ma7moud3ly.fast.compose.parser.ast.*
@@ -75,6 +77,15 @@ public class Interpreter(
         listOf(main) + dependencies.filter { it !== program }.map(::FileScope)
     private val root = main.root
     private val builtins = Builtins(this)
+
+    /** Values the host gives to bindings that run outside composition, e.g. the resources for `Font(R.font.x)`. */
+    internal val hostValues: MutableMap<String, Any?> = mutableMapOf()
+
+    /**
+     * Checks added by bindings that ran while a resource was still loading, e.g. a top-level `FontFamily`; each is
+     * true once its resource is done. The host then runs the code again, since such values are built only once.
+     */
+    internal val loadingChecks: SnapshotStateList<() -> Boolean> = mutableStateListOf()
     private val extensionProperties: List<PropertyDecl> =
         scopes.flatMap { scope ->
             scope.program.declarations.filterIsInstance<PropertyDecl>()

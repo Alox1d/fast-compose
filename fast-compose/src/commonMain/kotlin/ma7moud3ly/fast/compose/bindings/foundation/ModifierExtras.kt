@@ -108,10 +108,10 @@ private fun Registry.sizeModifiers() {
         m.sizeIn(a.dp("minWidth"), a.dp("minHeight"), a.dp("maxWidth"), a.dp("maxHeight"))
     }
     member<Modifier>("requiredWidth(width)") { m, a ->
-        (a["width"] as? IntrinsicSize)?.let { m.requiredWidth(it) } ?: m.requiredWidth(a.dp("width"))
+        (a["width"] as? IntrinsicSize)?.let { m.intrinsicSize(it, height = false, required = true) } ?: m.requiredWidth(a.dp("width"))
     }
     member<Modifier>("requiredHeight(height)") { m, a ->
-        (a["height"] as? IntrinsicSize)?.let { m.requiredHeight(it) } ?: m.requiredHeight(a.dp("height"))
+        (a["height"] as? IntrinsicSize)?.let { m.intrinsicSize(it, height = true, required = true) } ?: m.requiredHeight(a.dp("height"))
     }
     value("IntrinsicSize", IntrinsicSizes)
     constants<IntrinsicSizes>("Min" to IntrinsicSize.Min, "Max" to IntrinsicSize.Max)

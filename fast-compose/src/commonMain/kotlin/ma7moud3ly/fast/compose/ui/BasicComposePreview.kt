@@ -17,11 +17,16 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -31,6 +36,7 @@ import ma7moud3ly.fast.compose.bindings.foundation.LocalBasicTextColor
 import ma7moud3ly.fast.compose.bindings.foundation.LocalPreviewDarkTheme
 import ma7moud3ly.fast.compose.bindings.resources.LocalResourceEnvironment
 import ma7moud3ly.fast.compose.bindings.resources.LocalResourceProvider
+import ma7moud3ly.fast.compose.bindings.resources.RESOURCES_HOST_VALUE
 import ma7moud3ly.fast.compose.bindings.resources.ResourceEnvironment
 import ma7moud3ly.fast.compose.bindings.resources.ResourceProvider
 import ma7moud3ly.fast.compose.interpreter.Interpreter
@@ -97,7 +103,7 @@ internal fun PreviewList(
         Box(modifier.padding(16.dp)) { label(if (code.isLoading) "Loading…" else "Fix the errors to see the preview") }
         return
     }
-    val interpreter = rememberInterpreter(code, program, registry)
+    val interpreter = rememberInterpreter(code, program, registry, resources)
     val previews = remember(interpreter) {
         program.previews.map { (function, annotation) ->
             function to interpreter.previewConfig(
@@ -137,6 +143,7 @@ internal fun PreviewList(
                                 LocalResourceProvider provides resources,
                                 LocalResourceEnvironment provides ResourceEnvironment(config.locale, config.darkTheme),
                                 LocalPreviewDarkTheme provides config.darkTheme,
+                                LocalInspectionMode provides true,
                             ) {
                                 interpreter.Render(function)
                             }
@@ -163,12 +170,20 @@ private fun PreviewConfig.label(): String {
 
 /**
  * Remembers an interpreter for [program] and the [ComposeCode.dependencies] of [code] that sends runtime errors and
- * `println` output to the logs of [code].
+ * `println` output to the logs of [code]. Bindings outside composition read [resources] through it; when they found a
+ * resource still loading, e.g. a font of a top-level `FontFamily`, a new interpreter runs the code once it is loaded.
  */
 @Composable
-internal fun rememberInterpreter(code: ComposeCode, program: Program, registry: Registry): Interpreter {
+internal fun rememberInterpreter(code: ComposeCode, program: Program, registry: Registry, resources: ResourceProvider): Interpreter {
     val dependencies = code.dependencies
-    return remember(program, dependencies, registry) {
+    var generation by remember(program, dependencies, registry) { mutableIntStateOf(0) }
+    val interpreter = remember(program, dependencies, registry, generation) {
         Interpreter(program, registry, onError = { code.logError(it) }, onLog = { code.log(it) }, dependencies = dependencies)
     }
+    interpreter.hostValues[RESOURCES_HOST_VALUE] = resources
+    val checks = interpreter.loadingChecks
+    if (checks.isNotEmpty() && checks.all { it() }) {
+        SideEffect { generation++ }
+    }
+    return interpreter
 }

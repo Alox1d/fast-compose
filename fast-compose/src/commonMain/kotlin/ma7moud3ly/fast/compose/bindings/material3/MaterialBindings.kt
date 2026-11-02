@@ -54,6 +54,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Badge
@@ -186,6 +187,7 @@ private fun Registry.material3() {
     tooltips()
     themes()
     componentExtras()
+    materialMore()
 }
 
 private fun Registry.icons3() {
@@ -468,10 +470,12 @@ private fun Registry.buttons() {
         ) { content() }
     }
     value("ButtonDefaults", ButtonDefaults)
-    composableMember<ButtonDefaults>("buttonColors(containerColor, contentColor)") { _, a ->
+    composableMember<ButtonDefaults>("buttonColors(containerColor, contentColor, disabledContainerColor, disabledContentColor)") { _, a ->
         ButtonDefaults.buttonColors(
             containerColor = a.color("containerColor"),
             contentColor = a.color("contentColor"),
+            disabledContainerColor = a.color("disabledContainerColor"),
+            disabledContentColor = a.color("disabledContentColor"),
         )
     }
     composableMember<ButtonDefaults>("shape") { _, _ -> ButtonDefaults.shape }
@@ -624,9 +628,9 @@ private fun Registry.materialCore() {
         val minLines = a.int("minLines", 1).coerceAtLeast(1)
         val annotated = a["text"] as? AnnotatedString
         if (annotated != null) {
-            Text(annotated, a.modifier(), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = a.action1("onTextLayout"), style = style)
+            Text(annotated, a.modifier(), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = a.action1("onTextLayout"), style = style, autoSize = a.typedOrNull<TextAutoSize>("autoSize"))
         } else {
-            Text(a.string("text"), a.modifier(), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = a.action1OrNull("onTextLayout"), style = style)
+            Text(a.string("text"), a.modifier(), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = a.action1OrNull("onTextLayout"), style = style, autoSize = a.typedOrNull<TextAutoSize>("autoSize"))
         }
     }
     composable("Button(onClick, modifier, enabled, shape, colors, elevation, border, contentPadding, interactionSource, content)") { a ->

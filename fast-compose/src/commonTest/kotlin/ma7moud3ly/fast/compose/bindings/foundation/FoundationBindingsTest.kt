@@ -1,6 +1,13 @@
 package ma7moud3ly.fast.compose.bindings.foundation
 
+import androidx.compose.animation.core.EaseInOutCubic
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.runtime.ProvidedValue
@@ -40,6 +47,72 @@ class FoundationBindingsTest {
             }
         """.trimIndent()
         assertEquals("Hi there", run(code))
+    }
+
+    @Test
+    fun primitiveStates() {
+        val code = """
+            fun test(): List<Any> {
+                val count = mutableIntStateOf(1)
+                count.intValue = count.intValue + 2
+                val size = mutableFloatStateOf(1f)
+                size.floatValue *= 2f
+                return listOf(count.intValue, size.floatValue, mutableLongStateOf(5L).longValue)
+            }
+        """.trimIndent()
+        assertEquals(listOf(3, 2f, 5L), run(code))
+    }
+
+    @Test
+    fun densityConversions() {
+        val code = """
+            fun test(): List<Any> = with(Density(2f)) {
+                listOf(10.toDp(), 4.dp.toPx(), 3.dp.roundToPx(), 1.5f.em)
+            }
+        """.trimIndent()
+        assertEquals(listOf(5.dp, 8f, 6, 1.5f.em), run(code))
+    }
+
+    @Test
+    fun platformApis() {
+        val code = """
+            fun test(): List<Any> {
+                val words = buildString {
+                    append("a")
+                    append(1)
+                }
+                return listOf(
+                    Integer.MAX_VALUE / 2,
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+                    Regex("a+").matches("aaa"),
+                    words,
+                    Random(1).nextInt(10) in 0..9,
+                    Color.Red.toArgb(),
+                    Locale("ar").language,
+                )
+            }
+        """.trimIndent()
+        assertEquals(listOf(Int.MAX_VALUE / 2, false, true, "a1", true, Color.Red.toArgb(), "ar"), run(code))
+    }
+
+    @Test
+    fun textAndFocusExtras() {
+        val problems = mutableListOf<RuntimeError>()
+        val code = """
+            fun test(): List<Any> {
+                val requester = FocusRequester()
+                val m = Modifier.focusRequester(requester).pointerHoverIcon(PointerIcon.Hand).clipToBounds()
+                val value = TextFieldValue("hello", selection = TextRange(1, 3))
+                return listOf(
+                    FontWeight.ExtraLight, TextDirection.Rtl, value.selection.length, DpOffset(2.dp, 4.dp).y,
+                    lerp(0.dp, 10.dp, 0.5f), m != Modifier, EaseInOutCubic,
+                )
+            }
+        """.trimIndent()
+        val program = KotlinParser.parse(code).program
+        val result = Interpreter(program, registry, onError = { problems += it }).call("test")
+        assertEquals(listOf(FontWeight.ExtraLight, TextDirection.Rtl, 2, 4.dp, 5.dp, true, EaseInOutCubic), result)
+        assertEquals(emptyList(), problems)
     }
 
     @Test

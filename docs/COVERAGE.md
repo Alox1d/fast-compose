@@ -33,6 +33,10 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
 - **Platform code.** An `expect` function whose `actual` is not loaded does nothing if it returns nothing, and
   fails otherwise. A default argument that fails gives the empty value of its type (`0`, `""`, `false`, `null`, an
   empty list), with a warning, so sample data still builds.
+- **Platform APIs.** Previews report `Build.VERSION.SDK_INT` 30 (so dynamic colors stay off), and set
+  `LocalInspectionMode` to `true`. `Integer`, `Locale`, `kotlin.time.Clock`, `Random`, `Regex` and `StringBuilder`
+  work; `Context`, `View`, lifecycle owners and `java.time` run as stand-ins. Rounded, Sharp and TwoTone icons show
+  the Filled icon of the same name.
 - **Types are not checked.** Type annotations are parsed and used for overloads and `is` checks, but a wrong type is
   reported when the code runs, not before.
 - **Not every language feature.** Advanced features such as reflection are not supported yet; unsupported code

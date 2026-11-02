@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 /**
  * Common Material icons, available as `Icons.Default.X`, `Icons.Filled.X`, `Icons.Outlined.X` and
  * `Icons.AutoMirrored.Filled.X` / `Icons.AutoMirrored.Outlined.X` for icons that flip in right-to-left layouts.
+ * `Icons.Rounded`, `Icons.Sharp` and `Icons.TwoTone` show the Filled icon of the same name.
  * Only the listed icons are bundled to keep the app small; any other name shows a placeholder and logs a warning.
  */
 public object IconBindings : BindingPack {
@@ -27,8 +28,18 @@ private fun Registry.icons() {
         "Filled" to Icons.Filled,
         "Outlined" to Icons.Outlined,
         "AutoMirrored" to Icons.AutoMirrored,
+        "Rounded" to Icons.Rounded,
+        "Sharp" to Icons.Sharp,
+        "TwoTone" to Icons.TwoTone,
     )
-    constants<Icons.AutoMirrored>("Default" to Icons.AutoMirrored.Default, "Filled" to Icons.AutoMirrored.Filled, "Outlined" to Icons.AutoMirrored.Outlined)
+    constants<Icons.AutoMirrored>(
+        "Default" to Icons.AutoMirrored.Default,
+        "Filled" to Icons.AutoMirrored.Filled,
+        "Outlined" to Icons.AutoMirrored.Outlined,
+        "Rounded" to Icons.AutoMirrored.Rounded,
+        "Sharp" to Icons.AutoMirrored.Sharp,
+        "TwoTone" to Icons.AutoMirrored.TwoTone,
+    )
     for ((name, icon) in filledIcons) {
         member<Icons.Filled>(name) { _, _ -> icon() }
         if (name in autoMirrored) member<Icons.AutoMirrored.Filled>(name) { _, _ -> icon() }
@@ -41,6 +52,23 @@ private fun Registry.icons() {
     fallbackMember<Icons.Outlined> { _, name, a -> placeholder(name, a) }
     fallbackMember<Icons.AutoMirrored.Filled> { _, name, a -> placeholder(name, a) }
     fallbackMember<Icons.AutoMirrored.Outlined> { _, name, a -> placeholder(name, a) }
+    // Rounded, Sharp and TwoTone icons are not bundled; the Filled icon of the same name stands in for them.
+    for ((name, icon) in filledIcons) {
+        member<Icons.Rounded>(name) { _, _ -> icon() }
+        member<Icons.Sharp>(name) { _, _ -> icon() }
+        member<Icons.TwoTone>(name) { _, _ -> icon() }
+        if (name in autoMirrored) {
+            member<Icons.AutoMirrored.Rounded>(name) { _, _ -> icon() }
+            member<Icons.AutoMirrored.Sharp>(name) { _, _ -> icon() }
+            member<Icons.AutoMirrored.TwoTone>(name) { _, _ -> icon() }
+        }
+    }
+    fallbackMember<Icons.Rounded> { _, name, a -> placeholder(name, a) }
+    fallbackMember<Icons.Sharp> { _, name, a -> placeholder(name, a) }
+    fallbackMember<Icons.TwoTone> { _, name, a -> placeholder(name, a) }
+    fallbackMember<Icons.AutoMirrored.Rounded> { _, name, a -> placeholder(name, a) }
+    fallbackMember<Icons.AutoMirrored.Sharp> { _, name, a -> placeholder(name, a) }
+    fallbackMember<Icons.AutoMirrored.TwoTone> { _, name, a -> placeholder(name, a) }
 }
 
 /**
@@ -65,6 +93,7 @@ private val autoMirrored: Set<String> = setOf(
     "MenuOpen",
     "OpenInNew",
     "Send",
+    "ShortText",
     "ShowChart",
     "StarHalf",
     "TrendingDown",
@@ -78,6 +107,10 @@ private fun placeholder(name: String, a: Args): ImageVector {
 }
 
 private val filledIcons: Map<String, () -> ImageVector> = mapOf(
+    "Grid3x3" to { Icons.Filled.Grid3x3 },
+    "ShortText" to { Icons.AutoMirrored.Filled.ShortText },
+    "Upcoming" to { Icons.Filled.Upcoming },
+    "ViewDay" to { Icons.Filled.ViewDay },
     "AcUnit" to { Icons.Filled.AcUnit },
     "AccessTime" to { Icons.Filled.AccessTime },
     "AccountBalance" to { Icons.Filled.AccountBalance },

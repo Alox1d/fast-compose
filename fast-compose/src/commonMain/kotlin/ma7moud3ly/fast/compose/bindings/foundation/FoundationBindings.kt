@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -69,6 +70,16 @@ import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.IntState
+import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.LongState
+import androidx.compose.runtime.DoubleState
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.MutableLongState
+import androidx.compose.runtime.MutableDoubleState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -138,6 +149,8 @@ public object FoundationBindings : BindingPack {
         windows()
         images()
         javaLang()
+        platform()
+        uiExtras()
     }
 }
 
@@ -239,15 +252,15 @@ private fun Registry.basicText() {
         val minLines = a.int("minLines", 1).coerceAtLeast(1)
         val annotated = a["text"] as? AnnotatedString
         if (annotated != null) {
-            BasicText(annotated, a.modifier(), style, a.action1OrNull("onTextLayout"), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines)
+            BasicText(annotated, a.modifier(), style, a.action1OrNull("onTextLayout"), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, autoSize = a.typedOrNull<TextAutoSize>("autoSize"))
         } else {
-            BasicText(a.string("text"), a.modifier(), style, a.action1OrNull("onTextLayout"), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines)
+            BasicText(a.string("text"), a.modifier(), style, a.action1OrNull("onTextLayout"), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, autoSize = a.typedOrNull<TextAutoSize>("autoSize"))
         }
     }
 }
 
 /** Signature shared by the basic and Material `Text`, in the order of Compose's `Text` parameters. */
-public const val TEXT_SIGNATURE: String = "Text(text, modifier, color, fontSize, fontStyle, fontWeight, fontFamily, letterSpacing, " +
+public const val TEXT_SIGNATURE: String = "Text(text, modifier, color, autoSize, fontSize, fontStyle, fontWeight, fontFamily, letterSpacing, " +
     "textDecoration, textAlign, lineHeight, overflow, softWrap, maxLines, minLines, onTextLayout, style)"
 
 /** Text style from the [TEXT_SIGNATURE] arguments: color, fontSize, fontWeight, fontStyle, fontFamily, letterSpacing, textDecoration, textAlign, lineHeight. */
@@ -278,6 +291,16 @@ private fun Registry.state() {
     function("mutableStateOf(value)") { a -> mutableStateOf(a["value"]) }
     function("mutableIntStateOf(value)") { a -> mutableIntStateOf(a.int("value", 0)) }
     function("mutableFloatStateOf(value)") { a -> mutableFloatStateOf(a.float("value", 0f)) }
+    function("mutableLongStateOf(value)") { a -> mutableLongStateOf(a.long("value", 0L)) }
+    function("mutableDoubleStateOf(value)") { a -> mutableDoubleStateOf(a.typed<Number>("value", 0.0).toDouble()) }
+    properties<IntState>("intValue" to { it.intValue })
+    properties<FloatState>("floatValue" to { it.floatValue })
+    properties<LongState>("longValue" to { it.longValue })
+    properties<DoubleState>("doubleValue" to { it.doubleValue })
+    setter<MutableIntState>("intValue") { state, v -> state.intValue = (v as? Number)?.toInt() ?: state.intValue }
+    setter<MutableFloatState>("floatValue") { state, v -> state.floatValue = (v as? Number)?.toFloat() ?: state.floatValue }
+    setter<MutableLongState>("longValue") { state, v -> state.longValue = (v as? Number)?.toLong() ?: state.longValue }
+    setter<MutableDoubleState>("doubleValue") { state, v -> state.doubleValue = (v as? Number)?.toDouble() ?: state.doubleValue }
     function("mutableStateListOf(vararg elements)") { a -> mutableStateListOf<Any?>().apply { addAll(a.varargs("elements")) } }
 }
 
@@ -300,10 +323,10 @@ private fun Registry.modifiers() {
     member<Modifier>("size(width, height)") { m, a -> m.size(a.dp("width"), a.dp("height")) }
     // `width(IntrinsicSize.Min)` and `height(IntrinsicSize.Max)` share these bindings; the argument decides.
     member<Modifier>("width(width)") { m, a ->
-        (a["width"] as? IntrinsicSize)?.let { m.width(it) } ?: m.width(a.dp("width"))
+        (a["width"] as? IntrinsicSize)?.let { m.intrinsicSize(it, height = false, required = false) } ?: m.width(a.dp("width"))
     }
     member<Modifier>("height(height)") { m, a ->
-        (a["height"] as? IntrinsicSize)?.let { m.height(it) } ?: m.height(a.dp("height"))
+        (a["height"] as? IntrinsicSize)?.let { m.intrinsicSize(it, height = true, required = false) } ?: m.height(a.dp("height"))
     }
     member<Modifier>("offset(x: Dp, y: Dp)") { m, a -> m.offset(a.dp("x", 0.dp), a.dp("y", 0.dp)) }
     member<Modifier>("offset(offset: Density.() -> IntOffset)") { m, a ->
@@ -389,7 +412,13 @@ private fun Registry.modifiers() {
     member<Modifier>("zIndex(zIndex)") { m, a -> m.zIndex(a.float("zIndex", 0f)) }
     member<Modifier>("requiredSize(size)") { m, a -> m.requiredSize(a.dp("size")) }
     member<Modifier>("defaultMinSize(minWidth, minHeight)") { m, a -> m.defaultMinSize(a.dp("minWidth"), a.dp("minHeight")) }
-    member<Modifier>("then(other)") { m, a -> m.then(a.modifier("other")) }
+    // A modifier the preview can't build, e.g. a custom `ModifierNodeElement`, is left out with a warning.
+    member<Modifier>("then(other)") { m, a ->
+        when (val other = a["other"]) {
+            is Modifier -> m.then(other)
+            else -> m.also { if (other != null && !a.isStandIn("other")) a.warn("Modifier.then(${other::class.simpleName}) is not supported in previews; it is left out") }
+        }
+    }
 }
 
 private fun Registry.values() {

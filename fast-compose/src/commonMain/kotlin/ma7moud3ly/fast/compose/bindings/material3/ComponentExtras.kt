@@ -36,9 +36,11 @@ import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.TopAppBarScrollBehavior
+import androidx.compose.material3.TopAppBarState
 import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.ripple
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
@@ -232,10 +234,26 @@ private fun Registry.topAppBars() {
         )
     }
     type<TopAppBarScrollBehavior>("TopAppBarScrollBehavior")
-    composableMember<TopAppBarDefaults>("pinnedScrollBehavior()") { _, _ -> TopAppBarDefaults.pinnedScrollBehavior() }
-    composableMember<TopAppBarDefaults>("enterAlwaysScrollBehavior()") { _, _ -> TopAppBarDefaults.enterAlwaysScrollBehavior() }
-    composableMember<TopAppBarDefaults>("exitUntilCollapsedScrollBehavior()") { _, _ -> TopAppBarDefaults.exitUntilCollapsedScrollBehavior() }
+    composableMember<TopAppBarDefaults>("pinnedScrollBehavior(state, canScroll)") { _, a ->
+        val canScroll = a.calculationOrTrue("canScroll")
+        TopAppBarDefaults.pinnedScrollBehavior(a.typedOrNull<TopAppBarState>("state") ?: rememberTopAppBarState(), canScroll = { canScroll() })
+    }
+    composableMember<TopAppBarDefaults>("enterAlwaysScrollBehavior(state, canScroll)") { _, a ->
+        val canScroll = a.calculationOrTrue("canScroll")
+        TopAppBarDefaults.enterAlwaysScrollBehavior(a.typedOrNull<TopAppBarState>("state") ?: rememberTopAppBarState(), canScroll = { canScroll() })
+    }
+    composableMember<TopAppBarDefaults>("exitUntilCollapsedScrollBehavior(state, canScroll)") { _, a ->
+        val canScroll = a.calculationOrTrue("canScroll")
+        TopAppBarDefaults.exitUntilCollapsedScrollBehavior(a.typedOrNull<TopAppBarState>("state") ?: rememberTopAppBarState(), canScroll = { canScroll() })
+    }
     properties<TopAppBarScrollBehavior>("nestedScrollConnection" to { it.nestedScrollConnection }, "state" to { it.state })
+}
+
+/** `canScroll` of a scroll behavior: the passed lambda's result, or always true. */
+private fun Args.calculationOrTrue(name: String): () -> Boolean {
+    if (lambda(name) == null) return { true }
+    val calculation = calculation(name)
+    return { calculation() != false }
 }
 
 private fun Registry.exposedDropdownMenus() {

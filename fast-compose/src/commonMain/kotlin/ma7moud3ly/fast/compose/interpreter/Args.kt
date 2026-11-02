@@ -46,6 +46,14 @@ public class Args internal constructor(
         warn("Invalid value for '$name' of ${signature.name}: ${typeName(value)}; its default is used")
     }
 
+    /** A value the host gave the interpreter for bindings that run outside composition, see [Interpreter.hostValues]. */
+    internal fun hostValue(name: String): Any? = interpreter.hostValues[name]
+
+    /** Runs the code again once [isDone] is true, for a value built while a resource was still loading. */
+    internal fun runAgainWhen(isDone: () -> Boolean) {
+        interpreter.loadingChecks += isDone
+    }
+
     /** Reports a problem to the preview's error log without failing the call. */
     public fun report(message: String): Unit = interpreter.report(message)
 
