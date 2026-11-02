@@ -72,6 +72,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 
 /** CompositionLocal, styled text, gestures, BoxWithConstraints and animated content. */
@@ -101,6 +102,9 @@ private fun Registry.compositionLocals() {
         ProvideLocals(a.varargs("values").filterIsInstance<ProvidedValue<*>>(), a.content())
     }
     value("LocalDensity", LocalDensity)
+    type<Density>("Density")
+    function("Density(density, fontScale)") { a -> Density(a.float("density", 1f), a.float("fontScale", 1f)) }
+    properties<Density>("density" to { it.density }, "fontScale" to { it.fontScale })
     value("LocalLayoutDirection", LocalLayoutDirection)
 }
 

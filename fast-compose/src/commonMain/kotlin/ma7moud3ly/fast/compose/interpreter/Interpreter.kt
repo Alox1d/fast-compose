@@ -79,6 +79,9 @@ public class Interpreter(
         }
     private var depth = 0
 
+    /** Keys of warnings already shown, so each is shown once: stand-ins, functions without a body. */
+    private val warnedOnce = mutableSetOf<String>()
+
     /** Span of the expression being evaluated; errors are reported at its line. */
     private var location: Span? = null
 
@@ -183,6 +186,7 @@ public class Interpreter(
         }
 
         is ClassRef -> instantiate(fn.decl, args)
+        is StandIn -> fn
         is ComposableSlot -> throw composableFromPlain(fn.toString())
         is Function0<*> -> fn()
         else -> throw InterpreterException("Expression of type ${typeName(fn)} cannot be invoked as a function")
@@ -350,6 +354,49 @@ public class Interpreter(
         }
     }
 
+    /**
+     * Calls a function without a body, such as an `expect` function whose `actual` is not loaded: one that returns
+     * nothing does nothing, with a warning the first time; one that returns a value fails.
+     */
+    private fun callWithoutBody(decl: FunDecl): Any? {
+        val reason = "'${decl.name}' has no body here, e.g. an expect function without its actual"
+        if (returnsValue(decl)) throw InterpreterException("$reason, so it can't run in previews")
+        if (warnedOnce.add("body:${decl.name}")) warn("$reason; it does nothing in previews")
+        return Unit
+    }
+
+    /** Value of [param]'s [default]; if it fails, the empty value of its type, so sample data still builds. */
+    private fun defaultValue(param: Param, default: Expr, env: Env): Any? = try {
+        eval(default, env)
+    } catch (e: InterpreterException) {
+        emptyDefault(param, e.message)
+    }
+
+    /** Empty value for [param]'s type, used when its default fails with [error]: `0`, `""`, `false`, `null`, … */
+    private fun emptyDefault(param: Param, error: String?): Any? {
+        val type = param.type?.text?.trim()
+        val value: Any? = when {
+            type == null || type.endsWith("?") -> null
+            else -> when (baseTypeName(type)) {
+                "Int", "Short", "Byte" -> 0
+                "Long" -> 0L
+                "Float" -> 0f
+                "Double" -> 0.0
+                "Boolean" -> false
+                "String", "CharSequence" -> ""
+                "List", "Collection", "Iterable" -> emptyList<Any?>()
+                "MutableList", "ArrayList" -> mutableListOf<Any?>()
+                "Set" -> emptySet<Any?>()
+                "MutableSet" -> mutableSetOf<Any?>()
+                "Map" -> emptyMap<Any?, Any?>()
+                "MutableMap" -> mutableMapOf<Any?, Any?>()
+                else -> StandIn(type)
+            }
+        }
+        warn("Default value of '${param.name}' failed: $error; an empty value is used")
+        return value
+    }
+
     private fun functionResult(result: Any?): Any? = when {
         result is Jump && result.kind == Jump.Kind.RETURN -> result.value
         result is Jump -> throw InterpreterException("'break' and 'continue' are only allowed inside a loop")
@@ -357,13 +404,13 @@ public class Interpreter(
     }
 
     internal fun callFunction(decl: FunDecl, receiver: Any?, args: CallArgs, closure: Env?): Any? {
-        val body = decl.body ?: throw InterpreterException("Function '${decl.name}' has no body")
+        val body = decl.body ?: return callWithoutBody(decl)
         enter(decl.name)
         try {
             val env = (closure ?: scopeOf(decl).root).child(receiver)
             for (p in bindParams(decl.params, args, env, decl.name)) {
                 val default = p.default ?: continue
-                env.define(p.name, eval(default, env), mutable = false)
+                env.define(p.name, defaultValue(p, default, env), mutable = false)
             }
             return functionResult(evalBlock(body, env))
         } finally {
@@ -399,15 +446,16 @@ public class Interpreter(
 
     @Composable
     private fun runFunctionC(decl: FunDecl, receiver: Any?, args: CallArgs, closure: Env?): Any? {
-        val body = decl.body ?: return showIfError(fail("Function '${decl.name}' has no body"))
+        val body = decl.body ?: return showIfError(guard { callWithoutBody(decl) })
         if (depth >= MAX_DEPTH) return showIfError(fail("Stack overflow in '${decl.name}'"))
         val env = (closure ?: scopeOf(decl).root).child(receiver)
         val missing = guard { bindParams(decl.params, args, env, decl.name) }
         if (missing is ErrorValue) return showIfError(missing)
         for (p in missing as List<*>) {
             p as Param
-            val default = p.default
-            if (default != null) env.define(p.name, evalC(default, env), mutable = false)
+            val default = p.default ?: continue
+            val value = evalC(default, env)
+            env.define(p.name, if (value is ErrorValue) emptyDefault(p, value.message) else value, mutable = false)
         }
         depth++
         val result = evalBlockC(body, env)
@@ -433,18 +481,22 @@ public class Interpreter(
         val env = scopeOf(decl).root.child(value)
         for (p in bindParams(decl.constructorParams.map { it.param }, args, env, decl.name)) {
             val default = p.default ?: continue
-            env.define(p.name, eval(default, env), mutable = false)
+            env.define(p.name, defaultValue(p, default, env), mutable = false)
         }
         for (pp in decl.constructorParams) if (pp.isProperty) value.fields[pp.param.name] =
             env.get(pp.param.name)
+        // Object properties are initialized on first read, so one that fails doesn't block the others.
+        val isObject = decl.kind == ClassKind.OBJECT
         for (member in decl.members) {
             if (member !is PropertyDecl) continue
             val delegate = member.delegate
             val initializer = member.initializer
-            when {
-                delegate != null -> value.fields[member.name] = Delegated(eval(delegate, env))
-                initializer != null -> value.fields[member.name] = eval(initializer, env)
+            val compute: (() -> Any?)? = when {
+                delegate != null -> { { Delegated(eval(delegate, env)) } }
+                initializer != null -> { { eval(initializer, env) } }
+                else -> null
             }
+            if (compute != null) value.fields[member.name] = if (isObject) LazyField(compute) else compute()
         }
         for (block in decl.initBlocks) evalBlock(block, env.child())
     }
@@ -454,7 +506,13 @@ public class Interpreter(
         objects[decl.id]?.let { return it }
         val obj = ObjectValue(decl)
         objects[decl.id] = obj
-        initialize(obj, CallArgs.Empty)
+        try {
+            initialize(obj, CallArgs.Empty)
+        } catch (e: InterpreterException) {
+            // A failed `init` block runs again on the next use and fails with its real error, not missing fields.
+            objects.remove(decl.id)
+            throw e
+        }
         return obj
     }
 
@@ -475,15 +533,22 @@ public class Interpreter(
             }
         }
 
-    /** Finds a method in a user class or its user-declared supertypes. */
-    private fun findMethod(decl: ClassDecl, name: String, args: CallArgs): FunDecl? {
+    /**
+     * Finds a method in a user class or its user-declared supertypes, or else one of the class's own methods without a
+     * body, e.g. in an `expect object`.
+     */
+    private fun findMethod(decl: ClassDecl, name: String, args: CallArgs): FunDecl? =
+        findMethodWithBody(decl, name, args)
+            ?: decl.members.filterIsInstance<FunDecl>().firstOrNull { it.name == name && it.body == null }
+
+    private fun findMethodWithBody(decl: ClassDecl, name: String, args: CallArgs): FunDecl? {
         val methods =
             decl.members.filterIsInstance<FunDecl>().filter { it.name == name && it.body != null }
         methods.firstOrNull { accepts(it.params, args) }?.let { return it }
         methods.firstOrNull()?.let { return it }
         for (superType in decl.superTypes) {
             val superDecl = scopeOf(decl).classes[baseTypeName(superType.text)] ?: continue
-            if (superDecl !== decl) findMethod(superDecl, name, args)?.let { return it }
+            if (superDecl !== decl) findMethodWithBody(superDecl, name, args)?.let { return it }
         }
         return null
     }
@@ -623,7 +688,8 @@ public class Interpreter(
         }
         val value = builtins.global(name, args)
         if (value !== Unresolved) return Target.Done(value)
-        env.file.memberImports[name]?.let { return importedMemberCall(it, args, env) }
+        env.file.memberImports[name]?.let { import -> importedMemberCall(import, args, env)?.let { return it } }
+        importedStandIn(name, env.file)?.let { return Target.Done(it) }
         return null
     }
 
@@ -662,6 +728,7 @@ public class Interpreter(
 
     private fun resolveMemberCall(receiver: Any?, name: String, args: CallArgs, env: Env): Target? {
         when (receiver) {
+            is StandIn -> return Target.Done(StandIn("${receiver.name}.$name"))
             is UserValue -> {
                 findMethod(receiver.decl, name, args)?.let {
                     return Target.UserFunction(
@@ -888,11 +955,25 @@ public class Interpreter(
             val imported = importedValue(import, import.memberPath, env)
             if (imported !== Unresolved) return imported
         }
+        importedStandIn(name, env.file)?.let { return it }
         throw unresolved(name, env.file)
+    }
+
+    /**
+     * Stand-in for [name] when [file] imports it explicitly but nothing provides it, such as a library API without a
+     * binding; warns once per import. Names that are not imported stay unresolved.
+     */
+    private fun importedStandIn(name: String, file: FileScope): StandIn? {
+        val import = file.program.imports.firstOrNull { !it.isStar && it.visibleName == name } ?: return null
+        if (warnedOnce.add("import:${import.path}")) {
+            warn("'$name' (${import.declarationPackage}) has no binding; a stand-in is used, so the preview may differ")
+        }
+        return StandIn(name)
     }
 
     private fun tryGetMember(receiver: Any?, name: String): Any? {
         when (receiver) {
+            is StandIn -> return StandIn("${receiver.name}.$name")
             is UserValue -> {
                 if (receiver.hasField(name)) return receiver.read(name)
                 findGetter(receiver.decl, name)?.let { return evalGetter(it, receiver) }
@@ -953,6 +1034,7 @@ public class Interpreter(
         is Iterable<*> -> value
         is Map<*, *> -> value.entries
         is CharSequence -> value.asIterable()
+        is StandIn -> emptyList()
         else -> throw InterpreterException("For-loop range must be iterable, found ${typeName(value)}")
     }
 
@@ -1488,10 +1570,11 @@ public class Interpreter(
                 expr.isSafe && receiver == null -> null
                 else -> {
                     val getter = registry.findComposableMember(receiver, expr.name, CallShape.None)
-                    if (getter != null) {
-                        getter.binding(receiver, toArgs(CallArgs.Empty, env, getter.signature))
-                    } else {
-                        showIfError(guard { getMember(receiver, expr.name) })
+                    val userGetter = userGetter(receiver, expr.name)
+                    when {
+                        getter != null -> getter.binding(receiver, toArgs(CallArgs.Empty, env, getter.signature))
+                        userGetter != null -> evalGetterC(userGetter, receiver)
+                        else -> showIfError(guard { getMember(receiver, expr.name) })
                     }
                 }
             }
@@ -1566,7 +1649,59 @@ public class Interpreter(
         }
 
         is Lambda -> LambdaValue(expr, env, null)
+        is Ident -> {
+            val property = getterRead(expr.name, env)
+            if (property != null) {
+                evalGetterC(property.first, property.second)
+            } else {
+                showIfError(guard { eval(expr, env) })
+            }
+        }
+
         else -> showIfError(guard { eval(expr, env) })
+    }
+
+    /**
+     * Property with a getter that [name] reads in [env], with its receiver: a member of an implicit receiver or a
+     * top-level property. Null when [name] is something else, e.g. a local value or a stored property.
+     */
+    private fun getterRead(name: String, env: Env): Pair<PropertyDecl, Any?>? {
+        if (env.find(name) !== Unresolved) return null
+        for (receiver in env.receivers) {
+            userGetter(receiver, name)?.let { return it to receiver }
+            if (hasProperty(receiver, name)) return null
+        }
+        val decl = env.file.properties[name] ?: return null
+        return if (decl.getter != null) decl to NoReceiver else null
+    }
+
+    /** Getter of a user class member or a user extension property that reads [name] on [receiver], if any. */
+    private fun userGetter(receiver: Any?, name: String): PropertyDecl? {
+        if (receiver is UserValue) {
+            if (receiver.hasField(name)) return null
+            findGetter(receiver.decl, name)?.let { return it }
+        }
+        return extensionProperties.firstOrNull { p ->
+            p.name == name && p.receiver?.let { type ->
+                try {
+                    isInstance(receiver, type.text)
+                } catch (_: InterpreterException) {
+                    false // a receiver type that is not known here
+                }
+            } == true
+        }
+    }
+
+    /**
+     * Runs a property's getter inside composition, so a `@Composable get()` can call composables such as
+     * `MaterialTheme.colorScheme`.
+     */
+    @Composable
+    private fun evalGetterC(property: PropertyDecl, receiver: Any?): Any? {
+        val getter = property.getter ?: return showIfError(fail("Property '${property.name}' has no getter"))
+        val result = evalBlockC(getter, scopeOf(property).root.child(receiver))
+        if (result is ErrorValue) return result
+        return showIfError(guard { functionResult(result) })
     }
 
     private fun evalTry(expr: TryExpr, env: Env): Any? = try {
@@ -1893,6 +2028,7 @@ public class Interpreter(
     }
 
     private fun index(receiver: Any?, indices: List<Any?>, env: Env): Any? {
+        if (receiver is StandIn) return StandIn("${receiver.name}[]")
         val value = builtins.index(receiver, indices)
         return if (value !== Unresolved) value else callMember(
             receiver,
@@ -1910,6 +2046,10 @@ public class Interpreter(
             "!==" -> return left !== right
             "in" -> return contains(right, left, null)
             "!in" -> return !contains(right, left, null)
+        }
+        // Comparisons with a stand-in are false; other operations give a stand-in, except adding it to a String.
+        if ((left is StandIn || right is StandIn) && !(op == "+" && left is String)) {
+            return if (op in setOf("<", ">", "<=", ">=")) false else left as? StandIn ?: right
         }
         val value = Operators.binary(op, left, right)
         if (value !== Unresolved) return value
@@ -1931,6 +2071,7 @@ public class Interpreter(
     }
 
     private fun contains(container: Any?, element: Any?, env: Env?): Boolean {
+        if (container is StandIn) return false
         val value = Operators.contains(container, element)
         if (value is Boolean) return value
         return callMember(container, "contains", CallArgs(listOf(element)), env ?: root) as? Boolean
@@ -1949,7 +2090,9 @@ public class Interpreter(
         return unaryValue(expr.op, operand)
     }
 
-    private fun unaryValue(op: String, operand: Any?): Any? = when (op) {
+    private fun unaryValue(op: String, operand: Any?): Any? = if (operand is StandIn && op != "!!") {
+        operand
+    } else when (op) {
         "-" -> Operators.negate(operand).let {
             if (it !== Unresolved) it else callMember(
                 operand,
@@ -1967,7 +2110,8 @@ public class Interpreter(
 
     private fun truthy(value: Any?): Boolean =
         value as? Boolean
-            ?: throw InterpreterException("Condition must be Boolean, found ${typeName(value)}")
+            ?: if (value is StandIn) false
+            else throw InterpreterException("Condition must be Boolean, found ${typeName(value)}")
 
     // ---------- Coroutines: bodies of LaunchedEffect, launch { } and suspend functions ----------
 
@@ -2011,11 +2155,16 @@ public class Interpreter(
     ): Any? {
         if (decl.isComposable) throw composableFromPlain(decl.name)
         if (!decl.isSuspend) return callFunction(decl, receiver, args, closure)
-        val body = decl.body ?: throw InterpreterException("Function '${decl.name}' has no body")
+        val body = decl.body ?: return callWithoutBody(decl)
         val env = (closure ?: scopeOf(decl).root).child(receiver)
         for (p in bindParams(decl.params, args, env, decl.name)) {
             val default = p.default ?: continue
-            env.define(p.name, evalS(default, env), mutable = false)
+            val value = try {
+                evalS(default, env)
+            } catch (e: InterpreterException) {
+                emptyDefault(p, e.message)
+            }
+            env.define(p.name, value, mutable = false)
         }
         return functionResult(evalBlockS(body, env))
     }
@@ -2386,6 +2535,7 @@ public class Interpreter(
     internal fun isInstance(value: Any?, typeText: String): Boolean {
         val text = typeText.trim().let { t -> if (t.startsWith("@")) t.substringAfter(' ') else t }
         if (value == null) return text.endsWith("?")
+        if (value is StandIn) return false
         if ("->" in text) return value is LambdaValue || value is FunctionRef || value is ComposableSlot || value is Function<*>
         return when (val name = baseTypeName(text)) {
             "Any" -> true
@@ -2431,6 +2581,7 @@ public class Interpreter(
     }
 
     private fun cast(value: Any?, typeText: String, isSafe: Boolean): Any? {
+        if (value is StandIn) return value
         val matches = try {
             isInstance(value, typeText)
         } catch (_: InterpreterException) {

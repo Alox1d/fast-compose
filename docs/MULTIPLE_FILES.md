@@ -61,8 +61,9 @@ Only the previewed file's `@Preview` functions are shown.
   declaration uses them. Warnings for other files carry their path in `LogLine.file`.
 - Parse errors and runtime errors in other files are logged with their file, e.g. `ProfileCard.kt:12: …`.
   `LogLine.file` and `RuntimeError.file` hold the path; they are null for the previewed file.
-- A name imported from a package with no binding fails when it runs, naming its package:
-  `Unresolved reference 'getTimeMillis' (imported from io.ktor.util.date)`.
+- A name imported from a package with no binding runs as a stand-in, with one warning naming its package:
+  `'getTimeMillis' (io.ktor.util.date) has no binding; a stand-in is used, so the preview may differ`. Names that
+  are not imported stay unresolved errors.
 
 ## Checking for previews
 

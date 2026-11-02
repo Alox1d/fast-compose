@@ -56,17 +56,56 @@ internal class Delegated(private val delegate: Any?) {
     }
 }
 
+/**
+ * Property of an object, initialized on its first read. A failure is kept and thrown again on every read, so the
+ * error names its real cause.
+ */
+internal class LazyField(private val initializer: () -> Any?) {
+    private var isComputing = false
+    private var failure: InterpreterException? = null
+
+    fun compute(name: String): Any? {
+        failure?.let { throw it }
+        if (isComputing) throw InterpreterException("Property '$name' depends on itself")
+        isComputing = true
+        try {
+            return initializer()
+        } catch (e: InterpreterException) {
+            failure = e
+            throw e
+        } finally {
+            isComputing = false
+        }
+    }
+}
+
+/**
+ * Stand-in for a library API that has no binding, e.g. `EditorTheme(…)` imported from a library. Calls, members and
+ * operations on it give stand-ins, conditions on it are false, loops over it are empty, it shows as empty text, and
+ * bindings use their defaults instead.
+ */
+internal class StandIn(val name: String) {
+    override fun toString(): String = ""
+}
+
 /** Instance of a user-declared class, object or enum entry. */
 public abstract class UserValue internal constructor(public val decl: ClassDecl) {
     internal val fields = mutableMapOf<String, Any?>()
 
     internal fun hasField(name: String) = name in fields
 
-    internal fun read(name: String): Any? = fields[name].let { if (it is Delegated) it.get() else it }
+    internal fun read(name: String): Any? = initialized(name).let { if (it is Delegated) it.get() else it }
 
     internal fun write(name: String, value: Any?) {
-        val current = fields[name]
+        val current = initialized(name)
         if (current is Delegated) current.set(value) else fields[name] = value
+    }
+
+    /** Raw value of a field, computing a [LazyField] first. */
+    private fun initialized(name: String): Any? {
+        val value = fields[name]
+        if (value !is LazyField) return value
+        return value.compute(name).also { fields[name] = it }
     }
 }
 
@@ -121,5 +160,6 @@ internal fun typeName(value: Any?): String = when (value) {
     null -> "null"
     is UserValue -> value.decl.name
     is LambdaValue, is FunctionRef, is ComposableSlot -> "Function"
+    is StandIn -> value.name
     else -> value::class.simpleName ?: "value"
 }

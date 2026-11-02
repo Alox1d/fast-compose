@@ -217,15 +217,99 @@ class InterpreterTest {
         assertEquals("red", interpreter(code, registry).call("test"))
     }
 
-    @Test
-    fun unresolvedImportsNameTheirPackage() {
-        val code = """
-            import io.ktor.util.date.getTimeMillis
+    /** Runs `test()` in [code] and returns its result with the problems reported while it ran. */
+    private fun runWithProblems(code: String): Pair<Any?, List<RuntimeError>> {
+        val problems = mutableListOf<RuntimeError>()
+        val program = KotlinParser.parse(code.trimIndent()).program
+        val result = Interpreter(program, Registry(), onError = { problems += it }).call("test")
+        return result to problems
+    }
 
-            fun test() = getTimeMillis()
+    @Test
+    fun importedLibraryApisRunAsStandIns() {
+        val (result, problems) = runWithProblems(
+            """
+            import io.lib.Theme
+            import io.lib.rememberThing
+
+            fun test(): String {
+                val t = Theme(background = 1)
+                val label = "bg " + t.background + "!"
+                val mode = if (t.dark) "dark" else "light"
+                var count = 0
+                for (x in t.items) count++
+                return label + "|" + mode + "|" + count + "|" + (t.size > 2) + "|" + rememberThing().value
+            }
+            """,
+        )
+        assertEquals("bg !|light|0|false|", result)
+        assertEquals(2, problems.size, problems.toString())
+        assertTrue(problems.all { it.isWarning && "stand-in" in it.message }, problems.toString())
+    }
+
+    @Test
+    fun namesThatAreNotImportedStayUnresolved() {
+        val error = assertFailsWith<InterpreterException> { run("fun test() = getTimeMillis()") }
+        assertEquals("Unresolved reference 'getTimeMillis'", error.message)
+    }
+
+    @Test
+    fun objectPropertiesInitializeOnFirstRead() {
+        val code = """
+            object Themes {
+                val broken = missing()
+                val ok = "fine"
+                val alias = broken
+            }
+
+            fun test() = Themes.ok
+            fun alias() = Themes.alias
         """.trimIndent()
+        val interpreter = interpreter(code)
+        assertEquals("fine", interpreter.call("test"))
+        val error = assertFailsWith<InterpreterException> { interpreter.call("alias") }
+        assertEquals("Unresolved reference 'missing'", error.message)
+    }
+
+    @Test
+    fun functionsWithoutABodyDoNothing() {
+        val (result, problems) = runWithProblems(
+            """
+            expect fun log(message: String)
+
+            expect object Log {
+                fun i(tag: String)
+            }
+
+            fun test(): String {
+                log("a")
+                log("b")
+                Log.i("t")
+                return "done"
+            }
+            """,
+        )
+        assertEquals("done", result)
+        assertEquals(2, problems.size, problems.toString())
+
+        val code = "expect fun platform(): String\nfun test() = platform()"
         val error = assertFailsWith<InterpreterException> { run(code) }
-        assertEquals("Unresolved reference 'getTimeMillis' (imported from io.ktor.util.date)", error.message)
+        assertTrue("no body" in error.message!!, error.message)
+    }
+
+    @Test
+    fun failingDefaultsUseEmptyValues() {
+        val (result, problems) = runWithProblems(
+            """
+            data class Bookmark(val id: Int, val time: Long = currentMillis(), val note: String = missingNote())
+
+            fun next(x: Int = boom()) = x + 1
+
+            fun test() = Bookmark(1).toString() + "|" + next()
+            """,
+        )
+        assertEquals("Bookmark(id=1, time=0, note=)|1", result)
+        assertEquals(3, problems.size, problems.toString())
     }
 
     @Test

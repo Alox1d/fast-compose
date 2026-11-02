@@ -34,6 +34,18 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun density() {
+        val code = """
+            fun test(): Float {
+                val density = Density(2f, fontScale = 1.5f)
+                val scaled = Density(density.density, fontScale = density.fontScale * 2)
+                return scaled.density + scaled.fontScale
+            }
+        """.trimIndent()
+        assertEquals(5f, run(code))
+    }
+
+    @Test
     fun combinedTransitions() {
         assertEquals(true, run("fun test() = (fadeIn() + expandIn()) is EnterTransition"))
     }

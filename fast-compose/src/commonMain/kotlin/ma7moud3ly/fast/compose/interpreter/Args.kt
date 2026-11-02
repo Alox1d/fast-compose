@@ -28,7 +28,7 @@ public class Args internal constructor(
     public fun varargs(name: String): List<Any?> = get(name) as? List<*> ?: emptyList()
 
     public inline fun <reified T> typed(name: String, default: T): T {
-        if (!has(name)) return default
+        if (!has(name) || isStandIn(name)) return default
         val value = get(name)
         if (value is T) return value
         invalid(name, value)
@@ -36,6 +36,10 @@ public class Args internal constructor(
     }
 
     public inline fun <reified T> typedOrNull(name: String): T? = typed<T?>(name, null)
+
+    /** True when the argument is a stand-in for a library API without a binding; getters then use their default. */
+    @PublishedApi
+    internal fun isStandIn(name: String): Boolean = values[name] is StandIn
 
     @PublishedApi
     internal fun invalid(name: String, value: Any?) {
