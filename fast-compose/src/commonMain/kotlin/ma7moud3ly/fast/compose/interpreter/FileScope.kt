@@ -3,6 +3,7 @@ package ma7moud3ly.fast.compose.interpreter
 import ma7moud3ly.fast.compose.parser.ast.ClassDecl
 import ma7moud3ly.fast.compose.parser.ast.Decl
 import ma7moud3ly.fast.compose.parser.ast.FunDecl
+import ma7moud3ly.fast.compose.parser.ast.Import
 import ma7moud3ly.fast.compose.parser.ast.Program
 import ma7moud3ly.fast.compose.parser.ast.PropertyDecl
 
@@ -11,7 +12,8 @@ import ma7moud3ly.fast.compose.parser.ast.PropertyDecl
  *
  * Visible declarations follow Kotlin's order, each level hiding the ones before it: star imports, then the file's
  * package, then explicit imports (under their alias, if any), then the file's own declarations. Private declarations
- * of other files are not visible. With a single file only its own declarations are visible and imports are ignored.
+ * of other files are not visible. With a single file only its own declarations are visible and imports are ignored,
+ * except imports of members such as `import …Devices.DESKTOP`, which also work for bound objects.
  */
 internal class FileScope(val program: Program) {
 
@@ -23,6 +25,14 @@ internal class FileScope(val program: Program) {
     var classes: Map<String, ClassDecl> = emptyMap()
         private set
     var properties: Map<String, PropertyDecl> = emptyMap()
+        private set
+
+    /** Imports of members of classes and objects, e.g. `DESKTOP` from `import …Devices.DESKTOP`, by visible name. */
+    val memberImports: Map<String, Import> =
+        program.imports.filter { it.memberPath.isNotEmpty() }.associateBy { it.visibleName!! }
+
+    /** Classes and objects of other files whose members [memberImports] import, by name. */
+    var memberImportOwners: Map<String, ClassDecl> = emptyMap()
         private set
 
     /** Values of top-level properties, by name. */
@@ -55,15 +65,21 @@ internal class FileScope(val program: Program) {
             others.filter { it.program.packageName == path }.forEach { visible.add(it.public()) }
         }
         visible.add(others.filter { it.program.packageName == program.packageName }.flatMap { it.public() })
+        val owners = mutableMapOf<String, ClassDecl>()
         for (import in program.imports.filter { !it.isStar }) {
-            val decls = others.filter { it.program.packageName == import.packageName }
-                .flatMap { it.public() }.filter { nameOf(it) == import.importedName }
-            visible.add(decls, import.visibleName)
+            val decls = others.filter { it.program.packageName == import.declarationPackage }
+                .flatMap { it.public() }.filter { nameOf(it) == import.declarationName }
+            if (import.memberPath.isEmpty()) {
+                visible.add(decls, import.visibleName)
+            } else {
+                decls.filterIsInstance<ClassDecl>().firstOrNull()?.let { owners[import.declarationName] = it }
+            }
         }
         visible.add(program.declarations)
         functions = visible.functions
         classes = visible.classes
         properties = visible.properties
+        memberImportOwners = owners
     }
 
     private fun public(): List<Decl> = program.declarations.filter { !isPrivate(it) }

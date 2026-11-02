@@ -623,7 +623,41 @@ public class Interpreter(
         }
         val value = builtins.global(name, args)
         if (value !== Unresolved) return Target.Done(value)
+        env.file.memberImports[name]?.let { return importedMemberCall(it, args, env) }
         return null
+    }
+
+    /** Target of a call to a member imported by name, e.g. `isReady()` after `import …Manager.isReady`, or null. */
+    private fun importedMemberCall(import: Import, args: CallArgs, env: Env): Target? {
+        val owner = importedValue(import, import.memberPath.dropLast(1), env)
+        if (owner === Unresolved) return null
+        val name = import.memberPath.last()
+        resolveMemberCall(owner, name, args, env)?.let { return it }
+        return when (val value = tryGetMember(owner, name)) {
+            Unresolved -> null
+            is ClassRef -> Target.Constructor(value.decl)
+            else -> Target.Value(value)
+        }
+    }
+
+    /**
+     * Value reached from the declaration an import names through [members], e.g. `Devices` then `DESKTOP` for
+     * `import …Devices.DESKTOP`; [Unresolved] if a step is not found. The declaration may be in another project file,
+     * in this file, or bound in the registry.
+     */
+    private fun importedValue(import: Import, members: List<String>, env: Env): Any? {
+        val ownerName = import.declarationName
+        val decl = env.file.memberImportOwners[ownerName] ?: env.file.classes[ownerName]
+        var value: Any? = when {
+            decl != null -> if (decl.kind == ClassKind.OBJECT) objectInstance(decl) else ClassRef(decl)
+            registry.hasValue(ownerName) -> registry.findValue(ownerName)
+            else -> builtins.globalValue(ownerName)
+        }
+        for (member in members) {
+            if (value === Unresolved) break
+            value = tryGetMember(value, member)
+        }
+        return value
     }
 
     private fun resolveMemberCall(receiver: Any?, name: String, args: CallArgs, env: Env): Target? {
@@ -756,7 +790,7 @@ public class Interpreter(
     @Composable
     private fun invokeTargetC(target: Any?, args: CallArgs, env: Env, name: String): Any? =
         when (target) {
-            null -> showIfError(fail(unresolved(name).message ?: name))
+            null -> showIfError(fail(unresolved(name, env.file).message ?: name))
             is ErrorValue -> showIfError(target)
             is Target.Done -> target.value
             is Target.UserFunction ->
@@ -789,8 +823,12 @@ public class Interpreter(
             else -> showIfError(fail("Cannot call '$name'"))
         }
 
-    private fun unresolved(name: String): InterpreterException {
+    /** Error for a name not found; names imported in [file] are reported with the package they come from. */
+    private fun unresolved(name: String, file: FileScope? = null): InterpreterException {
         registry.findHint(name)?.let { return InterpreterException(it) }
+        file?.program?.imports?.firstOrNull { !it.isStar && it.visibleName == name }?.let {
+            return InterpreterException("Unresolved reference '$name' (imported from ${it.declarationPackage})")
+        }
         val known = registry.globalNames() + main.functions.keys + main.classes.keys
         val suggestion =
             known.filter { editDistance(it, name) <= 2 }.minByOrNull { editDistance(it, name) }
@@ -846,7 +884,11 @@ public class Interpreter(
         if (registry.hasValue(name)) return registry.findValue(name)
         val value = builtins.globalValue(name)
         if (value !== Unresolved) return value
-        throw unresolved(name)
+        env.file.memberImports[name]?.let { import ->
+            val imported = importedValue(import, import.memberPath, env)
+            if (imported !== Unresolved) return imported
+        }
+        throw unresolved(name, env.file)
     }
 
     private fun tryGetMember(receiver: Any?, name: String): Any? {
@@ -1720,7 +1762,11 @@ public class Interpreter(
             CallArgs(positional, named, call.trailingLambda?.let { LambdaValue(it, env, label) })
         locate(call.span, env)
         return when (val callee = call.callee) {
-            is Ident -> invokeTarget(resolveCall(callee.name, args, env), args, callee.name)
+            is Ident -> invokeTarget(
+                resolveCall(callee.name, args, env) ?: throw unresolved(callee.name, env.file),
+                args,
+                callee.name,
+            )
             is Member -> {
                 if (isPackagePath(
                         callee.receiver,
@@ -2246,7 +2292,11 @@ public class Interpreter(
             CallArgs(positional, named, call.trailingLambda?.let { LambdaValue(it, env, label) })
         locate(call.span, env)
         return when (val callee = call.callee) {
-            is Ident -> invokeTargetS(resolveCall(callee.name, args, env), args, callee.name)
+            is Ident -> invokeTargetS(
+                resolveCall(callee.name, args, env) ?: throw unresolved(callee.name, env.file),
+                args,
+                callee.name,
+            )
             is Member -> {
                 if (isPackagePath(
                         callee.receiver,

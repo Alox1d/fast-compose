@@ -1238,6 +1238,27 @@ public class Parser(private val tokens: List<Token>) {
 
 /** Parses Kotlin source text into a [ParseResult]. */
 public object KotlinParser {
+    /**
+     * True if [source] has a `@Preview` annotation, written `@Preview` or qualified like
+     * `@androidx.compose.ui.tooling.preview.Preview`, without parsing it. Comments, strings and imports don't count.
+     * Cheap enough to call on every change, e.g. to decide whether a file is worth previewing.
+     */
+    public fun hasPreviews(source: String): Boolean {
+        val tokens = Lexer(source).tokenize()
+        for (i in tokens.indices) {
+            if (tokens[i].type != TokenType.AT) continue
+            var j = i + 1
+            var name: String? = null
+            while (j < tokens.size && tokens[j].type == TokenType.IDENTIFIER) {
+                name = tokens[j].text
+                if (tokens.getOrNull(j + 1)?.type != TokenType.DOT) break
+                j += 2
+            }
+            if (name == "Preview") return true
+        }
+        return false
+    }
+
     /** Parses [source]; [path] identifies the file in a project of several files and is kept in [Program.path]. */
     public fun parse(source: String, path: String? = null): ParseResult {
         val lexer = Lexer(source)

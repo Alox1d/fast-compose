@@ -236,6 +236,32 @@ class ParserTest {
     }
 
     @Test
+    fun importTargets() {
+        val member = Import("androidx.compose.ui.tooling.preview.Devices.DESKTOP")
+        assertEquals("androidx.compose.ui.tooling.preview", member.declarationPackage)
+        assertEquals("Devices", member.declarationName)
+        assertEquals(listOf("DESKTOP"), member.memberPath)
+
+        val function = Import("app.ui.label")
+        assertEquals("app.ui", function.declarationPackage)
+        assertEquals("label", function.declarationName)
+        assertTrue(function.memberPath.isEmpty())
+
+        val type = Import("app.model.User")
+        assertEquals("app.model", type.declarationPackage)
+        assertEquals("User", type.declarationName)
+        assertTrue(type.memberPath.isEmpty())
+    }
+
+    @Test
+    fun hasPreviews() {
+        assertTrue(KotlinParser.hasPreviews("@Preview\n@Composable\nfun A() {}"))
+        assertTrue(KotlinParser.hasPreviews("@androidx.compose.ui.tooling.preview.Preview @Composable fun A() {}"))
+        assertTrue(!KotlinParser.hasPreviews("// @Preview\nval text = \"@Preview\""))
+        assertTrue(!KotlinParser.hasPreviews("import androidx.compose.ui.tooling.preview.Preview\nfun A() {}"))
+    }
+
+    @Test
     fun lambdaParameters() {
         val forEach = assertIs<Call>(expr("items.forEach { item -> Text(item) }"))
         assertEquals(listOf("item"), forEach.trailingLambda!!.params)

@@ -40,6 +40,24 @@ public data class Import(val path: String, val alias: String? = null, val isStar
 
     /** Name the import makes visible in the file: the alias or the imported name; null for star imports. */
     public val visibleName: String? get() = alias ?: importedName
+
+    /**
+     * Package of the top-level declaration an explicit import reaches, by Kotlin's naming conventions: the segments
+     * before the first capitalized one. `a.b.Devices.DESKTOP` gives `a.b`; `a.b.label` gives `a.b`.
+     */
+    public val declarationPackage: String get() = segments.take(declarationIndex).joinToString(".")
+
+    /** Top-level declaration an explicit import reaches: `Devices` in `a.b.Devices.DESKTOP`, `label` in `a.b.label`. */
+    public val declarationName: String get() = segments[declarationIndex]
+
+    /** Members imported from inside [declarationName]: `[DESKTOP]` in `a.b.Devices.DESKTOP`; empty otherwise. */
+    public val memberPath: List<String> get() = if (isStar) emptyList() else segments.drop(declarationIndex + 1)
+
+    private val segments: List<String> get() = path.split('.')
+
+    private val declarationIndex: Int
+        get() = segments.indexOfFirst { it.firstOrNull()?.isUpperCase() == true }
+            .let { if (it < 0 || isStar) segments.lastIndex else it }
 }
 
 // ---------- Declarations ----------

@@ -12,9 +12,27 @@ public fun Program.externalNames(): Set<String> {
     return walker.used - walker.declared
 }
 
+/** Names one declaration uses but does not declare itself, like [Program.externalNames] for a single declaration. */
+public fun Decl.externalNames(): Set<String> {
+    val walker = ReferenceWalker()
+    walker.stmt(this)
+    return walker.used - walker.declared
+}
+
+/**
+ * Names a declaration uses after a `.`, e.g. `bold` in `text.bold()` or `Modifier.card()`: members, or extension
+ * functions and properties that may be declared in other files.
+ */
+public fun Decl.memberNames(): Set<String> {
+    val walker = ReferenceWalker()
+    walker.stmt(this)
+    return walker.members
+}
+
 private class ReferenceWalker {
     val used = mutableSetOf<String>()
     val declared = mutableSetOf<String>()
+    val members = mutableSetOf<String>()
 
     fun stmt(stmt: Stmt) {
         when (stmt) {
@@ -85,8 +103,16 @@ private class ReferenceWalker {
     fun expr(e: Expr) {
         when (e) {
             is Ident -> used += e.name
-            is Member -> expr(e.receiver)
-            is CallableRef -> if (e.receiver == null) used += e.name else expr(e.receiver)
+            is Member -> {
+                members += e.name
+                expr(e.receiver)
+            }
+            is CallableRef -> if (e.receiver == null) {
+                used += e.name
+            } else {
+                members += e.name
+                expr(e.receiver)
+            }
             is Call -> {
                 expr(e.callee)
                 e.args.forEach { expr(it.value) }

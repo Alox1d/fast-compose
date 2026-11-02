@@ -201,6 +201,33 @@ class InterpreterTest {
         assertEquals("odd 7", interpreter(code, delayRegistry).callSuspend("test"))
     }
 
+    private object Palette
+
+    @Test
+    fun importedMembersOfBoundObjects() {
+        val registry = Registry().apply {
+            value("Palette", Palette)
+            constants<Palette>("Red" to "red")
+        }
+        val code = """
+            import com.example.Palette.Red
+
+            fun test() = Red
+        """.trimIndent()
+        assertEquals("red", interpreter(code, registry).call("test"))
+    }
+
+    @Test
+    fun unresolvedImportsNameTheirPackage() {
+        val code = """
+            import io.ktor.util.date.getTimeMillis
+
+            fun test() = getTimeMillis()
+        """.trimIndent()
+        val error = assertFailsWith<InterpreterException> { run(code) }
+        assertEquals("Unresolved reference 'getTimeMillis' (imported from io.ktor.util.date)", error.message)
+    }
+
     @Test
     fun enumClass() {
         val code = """
