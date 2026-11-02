@@ -233,6 +233,23 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun systemBarCodeIsSilent() {
+        val problems = mutableListOf<RuntimeError>()
+        val code = """
+            fun test(): String {
+                val controller = WindowCompat.getInsetsController(null, null)
+                controller.isAppearanceLightStatusBars = true
+                controller.isAppearanceLightNavigationBars = false
+                WindowCompat.setDecorFitsSystemWindows(null, false)
+                return "ok"
+            }
+        """.trimIndent()
+        val program = KotlinParser.parse(code).program
+        assertEquals("ok", Interpreter(program, registry, onError = { problems += it }).call("test"))
+        assertEquals(emptyList(), problems)
+    }
+
+    @Test
     fun windowSizeClassesAndLifecycle() {
         val code = """
             fun test(): List<Any> = listOf(

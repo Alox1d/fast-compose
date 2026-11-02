@@ -10,6 +10,14 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.LocalAbsoluteTonalElevation
 import androidx.compose.material3.TopAppBarState
 import androidx.compose.material3.Typography
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -28,6 +36,7 @@ import ma7moud3ly.fast.compose.interpreter.Registry
  */
 @OptIn(ExperimentalMaterial3Api::class)
 internal fun Registry.materialMore() {
+    pullToRefresh()
     composable("BasicAlertDialog(onDismissRequest, modifier, properties, content)") { a ->
         BasicAlertDialog(
             onDismissRequest = a.action("onDismissRequest"),
@@ -199,6 +208,53 @@ internal fun Registry.materialMore() {
             labelMedium = a.typed<TextStyle>("labelMedium", t.labelMedium),
             labelSmall = a.typed<TextStyle>("labelSmall", t.labelSmall),
         )
+    }
+}
+
+/** Material 3 pull to refresh: the box, its state, the default indicator and the modifier. */
+@OptIn(ExperimentalMaterial3Api::class)
+private fun Registry.pullToRefresh() {
+    type<PullToRefreshState>("PullToRefreshState")
+    composable("rememberPullToRefreshState()") { rememberPullToRefreshState() }
+    composable("PullToRefreshBox(isRefreshing, onRefresh, modifier, state, contentAlignment, indicator, enabled, content)") { a ->
+        val isRefreshing = a.boolean("isRefreshing", false)
+        val state = a.typedOrNull<PullToRefreshState>("state") ?: rememberPullToRefreshState()
+        val indicator = a.scopedContentOrNull<BoxScope>("indicator")
+        val content = a.scopedContent<BoxScope>()
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = a.action("onRefresh"),
+            modifier = a.modifier(),
+            state = state,
+            contentAlignment = a.typed("contentAlignment", Alignment.TopStart),
+            indicator = {
+                if (indicator != null) {
+                    indicator()
+                } else {
+                    PullToRefreshDefaults.Indicator(
+                        state = state,
+                        isRefreshing = isRefreshing,
+                        modifier = Modifier.align(Alignment.TopCenter),
+                    )
+                }
+            },
+            enabled = a.boolean("enabled", true),
+        ) { content() }
+    }
+    value("PullToRefreshDefaults", PullToRefreshDefaults)
+    composableMember<PullToRefreshDefaults>("Indicator(state, isRefreshing, modifier, containerColor, color)") { _, a ->
+        val state = a.typedOrNull<PullToRefreshState>("state") ?: rememberPullToRefreshState()
+        PullToRefreshDefaults.Indicator(
+            state = state,
+            isRefreshing = a.boolean("isRefreshing", false),
+            modifier = a.modifier(),
+            containerColor = a.color("containerColor", PullToRefreshDefaults.containerColor),
+            color = a.color("color", PullToRefreshDefaults.indicatorColor),
+        )
+    }
+    member<Modifier>("pullToRefresh(isRefreshing, state, enabled, onRefresh)") { m, a ->
+        val state = a.typedOrNull<PullToRefreshState>("state")
+        if (state == null) m else m.pullToRefresh(a.boolean("isRefreshing", false), state, a.boolean("enabled", true), onRefresh = a.action("onRefresh"))
     }
 }
 

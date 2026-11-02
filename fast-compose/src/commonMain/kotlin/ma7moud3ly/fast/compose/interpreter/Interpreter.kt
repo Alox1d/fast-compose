@@ -1,5 +1,6 @@
 package ma7moud3ly.fast.compose.interpreter
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateListOf
@@ -1012,7 +1013,14 @@ public class Interpreter(
         when (target) {
             null -> showIfError(fail(unresolved(name, env.file).message ?: name))
             is ErrorValue -> showIfError(target)
-            is Target.Done -> target.value
+            is Target.Done -> target.value.also { value ->
+                // A stand-in for a library container, e.g. `PullToRefreshBox(…) { content() }`, still shows its
+                // content, in a Box, so a wrapper from an unbound library doesn't hide the screen.
+                val content = args.trailing
+                if (value is StandIn && name.first().isUpperCase() && content is LambdaValue && content.lambda.params.isEmpty()) {
+                    Box { showIfError(invokeComposable(content, this, emptyList())) }
+                }
+            }
             is Target.UserFunction ->
                 if (target.decl.isComposable) callFunctionC(
                     target.decl,

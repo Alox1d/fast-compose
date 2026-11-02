@@ -8,3 +8,8 @@ withContext.context                  # previews run the block where it is called
 calculateWindowSizeClass.activity    # the size comes from the preview frame
 addObserver.observer                 # the preview lifecycle never changes state
 removeObserver.observer              # the preview lifecycle never changes state
+getInsetsController.window             # previews have no Android window
+getInsetsController.view               # previews have no Android window
+setDecorFitsSystemWindows.window       # previews have no Android window
+setDecorFitsSystemWindows.decorFitsSystemWindows  # previews have no Android window
+enableEdgeToEdge.window                # previews have no Android window

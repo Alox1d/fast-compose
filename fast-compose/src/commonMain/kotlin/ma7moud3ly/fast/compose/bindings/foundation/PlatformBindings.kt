@@ -2,6 +2,7 @@ package ma7moud3ly.fast.compose.bindings.foundation
 
 import androidx.compose.ui.text.intl.Locale
 import ma7moud3ly.fast.compose.interpreter.Registry
+import ma7moud3ly.fast.compose.interpreter.StandIn
 import kotlin.random.Random
 import kotlin.time.Clock
 import kotlin.time.ExperimentalTime
@@ -121,4 +122,59 @@ internal fun Registry.platform() {
     member<StringBuilder>("clear()") { builder, _ -> builder.clear() }
     member<StringBuilder>("toString()") { builder, _ -> builder.toString() }
     properties<StringBuilder>("length" to { it.length })
+    androidWindow()
 }
+
+/** `LocalView`, `LocalActivity` and `LocalContext`: previews have no Android view, activity or context. */
+private object LocalViewRef
+private object LocalActivityRef
+private object LocalContextRef
+
+/** The view, activity, context and window that [AndroidLocal]s give; their other members are silent stand-ins. */
+internal object PreviewView
+internal object PreviewActivity
+internal object PreviewContext
+internal object PreviewWindow
+internal object PreviewInsetsController
+
+/** `androidx.core.view.WindowCompat`. */
+private object WindowCompatApi
+
+/**
+ * The usual edge-to-edge code of an app theme, as silent no-ops: previews have no Android window, so status and
+ * navigation bar colors and appearance don't apply. `view.isInEditMode` is true, as in Android Studio previews.
+ */
+private fun Registry.androidWindow() {
+    value("LocalView", LocalViewRef)
+    value("LocalActivity", LocalActivityRef)
+    value("LocalContext", LocalContextRef)
+    composableMember<LocalViewRef>("current") { _, _ -> PreviewView }
+    composableMember<LocalActivityRef>("current") { _, _ -> PreviewActivity }
+    composableMember<LocalContextRef>("current") { _, _ -> PreviewContext }
+    properties<PreviewView>(
+        "isInEditMode" to { true },
+        "context" to { PreviewContext },
+        "rootView" to { PreviewView },
+    )
+    properties<PreviewActivity>("window" to { PreviewWindow })
+    properties<PreviewContext>("window" to { PreviewWindow })
+    fallbackMember<PreviewView> { _, name, _ -> StandIn("View.$name") }
+    fallbackMember<PreviewActivity> { _, name, _ -> StandIn("Activity.$name") }
+    fallbackMember<PreviewContext> { _, name, _ -> StandIn("Context.$name") }
+    for (name in listOf("statusBarColor", "navigationBarColor", "isNavigationBarContrastEnforced", "isStatusBarContrastEnforced")) {
+        setter<PreviewWindow>(name) { _, _ -> }
+    }
+    properties<PreviewWindow>("decorView" to { PreviewView })
+    fallbackMember<PreviewWindow> { _, name, _ -> StandIn("Window.$name") }
+
+    value("WindowCompat", WindowCompatApi)
+    member<WindowCompatApi>("getInsetsController(window, view)") { _, _ -> PreviewInsetsController }
+    member<WindowCompatApi>("setDecorFitsSystemWindows(window, decorFitsSystemWindows)") { _, _ -> Unit }
+    member<WindowCompatApi>("enableEdgeToEdge(window)") { _, _ -> Unit }
+    for (name in listOf("isAppearanceLightStatusBars", "isAppearanceLightNavigationBars", "systemBarsBehavior")) {
+        setter<PreviewInsetsController>(name) { _, _ -> }
+    }
+    fallbackMember<PreviewInsetsController> { _, name, _ -> StandIn("WindowInsetsController.$name") }
+    function("enableEdgeToEdge()") { _ -> Unit }
+}
+
