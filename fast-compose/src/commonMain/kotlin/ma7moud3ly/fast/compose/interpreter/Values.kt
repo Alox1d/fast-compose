@@ -161,6 +161,14 @@ public class FunctionRef internal constructor(internal val decl: FunDecl, intern
     override fun toString(): String = "fun ${decl.name}"
 }
 
+/**
+ * `Type::name`, a reference to a member of a type such as `Char::lowercase` or `Item::title`: a function whose first
+ * argument is the receiver. [env] is where the reference was written, for resolving extensions.
+ */
+internal class MemberRef(val type: String, val name: String, val env: Env) {
+    override fun toString(): String = "$type::$name"
+}
+
 /** A user class used as a value: `Screen.Home`, `Message::class`, companion access. */
 public class ClassRef internal constructor(public val decl: ClassDecl) {
     override fun toString(): String = "class ${decl.name}"
@@ -171,7 +179,7 @@ internal val FunDecl.isComposable: Boolean get() = hasAnnotation("Composable")
 internal fun typeName(value: Any?): String = when (value) {
     null -> "null"
     is UserValue -> value.decl.name
-    is LambdaValue, is FunctionRef, is ComposableSlot -> "Function"
+    is LambdaValue, is FunctionRef, is MemberRef, is ComposableSlot -> "Function"
     is StandIn -> value.name
     else -> value::class.simpleName ?: "value"
 }

@@ -292,6 +292,26 @@ class InterpreterTest {
     }
 
     @Test
+    fun memberReferencesOnTypes() {
+        val code = """
+            data class Item(val title: String, val rank: Int) {
+                fun label() = title + rank
+            }
+
+            fun test(): List<Any> {
+                val items = listOf(Item("b", 2), Item("a", 1))
+                return listOf(
+                    "per kWh".replaceFirstChar(Char::uppercase),
+                    items.map(Item::title),
+                    items.sortedBy(Item::rank).map(Item::label),
+                    listOf(" x ", "").map(String::trim).filter(String::isNotEmpty),
+                )
+            }
+        """.trimIndent()
+        assertEquals(listOf("Per kWh", listOf("b", "a"), listOf("a1", "b2"), listOf("x")), run(code))
+    }
+
+    @Test
     fun primitiveArraysAndMath() {
         val code = """
             fun test(): List<Any> {

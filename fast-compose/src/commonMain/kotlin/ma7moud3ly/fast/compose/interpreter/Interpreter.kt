@@ -217,6 +217,7 @@ public class Interpreter(
         }
 
         is ClassRef -> instantiate(fn.decl, args)
+        is MemberRef -> invokeMemberRef(fn, args)
         is StandIn -> fn
         is ComposableSlot -> throw composableFromPlain(fn.toString())
         is Function0<*> -> fn()
@@ -920,7 +921,7 @@ public class Interpreter(
                 }
             }
 
-            is LambdaValue, is FunctionRef -> if (name == "invoke") return Target.Value(receiver)
+            is LambdaValue, is FunctionRef, is MemberRef -> if (name == "invoke") return Target.Value(receiver)
         }
         resolveExtension(name, receiver, args, env)?.let {
             return Target.UserFunction(
@@ -2265,11 +2266,32 @@ public class Interpreter(
             val decl = env.file.functions[expr.name]?.firstOrNull() ?: throw unresolved(expr.name)
             return FunctionRef(decl, NoReceiver, null)
         }
+        if (expr.name != "class" && receiverExpr is Ident && isTypeReference(receiverExpr.name, env)) {
+            return MemberRef(receiverExpr.name, expr.name, env)
+        }
         val receiver = eval(receiverExpr, env)
         if (expr.name == "class") return receiver
+        if (receiver is ClassRef) return MemberRef(receiver.decl.name, expr.name, env)
         val decl = (receiver as? UserValue)?.let { findMethod(it.decl, expr.name, CallArgs.Empty) }
             ?: throw InterpreterException("Unsupported callable reference '::${expr.name}'")
         return FunctionRef(decl, receiver, null)
+    }
+
+    /** True when [name] before `::` is a Kotlin or bound type rather than a value, e.g. `Char` in `Char::lowercase`. */
+    private fun isTypeReference(name: String, env: Env): Boolean =
+        env.find(name) === Unresolved && (name in KOTLIN_TYPES || registry.findType(name) != null)
+
+    /** Calls `Type::name` on its first argument: a property when there are no other arguments, else a member call. */
+    private fun invokeMemberRef(ref: MemberRef, args: CallArgs): Any? {
+        val all = args.positional + listOfNotNull(args.trailing)
+        if (all.isEmpty()) throw InterpreterException("'$ref' needs a receiver")
+        val receiver = all.first()
+        val rest = CallArgs(all.drop(1))
+        if (rest.positional.isEmpty()) {
+            val value = tryGetMember(receiver, ref.name)
+            if (value !== Unresolved) return value
+        }
+        return callMember(receiver, ref.name, rest, ref.env)
     }
 
     private fun thisValue(env: Env): Any? {
@@ -2808,7 +2830,7 @@ public class Interpreter(
         val text = typeText.trim().let { t -> if (t.startsWith("@")) t.substringAfter(' ') else t }
         if (value == null) return text.endsWith("?")
         if (value is StandIn) return false
-        if ("->" in text) return value is LambdaValue || value is FunctionRef || value is ComposableSlot || value is Function<*>
+        if ("->" in text) return value is LambdaValue || value is FunctionRef || value is MemberRef || value is ComposableSlot || value is Function<*>
         return when (val name = baseTypeName(text)) {
             "Any" -> true
             "Int" -> value is Int
@@ -2877,6 +2899,12 @@ public class Interpreter(
         /** Default for [maxRunTime]: long enough for any real preview, short enough to avoid a frozen app. */
         val DEFAULT_MAX_RUN_TIME: Duration = 2.seconds
         val PAUSE = 50.milliseconds
+        /** Kotlin types that can appear before `::` in a member reference. */
+        val KOTLIN_TYPES = setOf(
+            "Any", "String", "CharSequence", "Char", "Int", "Long", "Short", "Byte", "Float", "Double", "Number",
+            "Boolean", "List", "MutableList", "Collection", "Iterable", "Set", "MutableSet", "Map", "MutableMap", "Pair",
+            "Triple", "IntRange",
+        )
         val GLOBAL_INTRINSICS = setOf("repeat", "run", "with", "buildList", "buildSet", "buildMap")
 
         /** `java.lang` classes that platform code uses without an import; unbound ones run as stand-ins. */
