@@ -2,9 +2,12 @@ package ma7moud3ly.fast.compose.bindings.foundation
 
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.runtime.ProvidedValue
+import androidx.compose.ui.unit.LayoutDirection
 import ma7moud3ly.fast.compose.interpreter.Interpreter
 import ma7moud3ly.fast.compose.interpreter.Registry
 import ma7moud3ly.fast.compose.interpreter.RuntimeError
+import ma7moud3ly.fast.compose.interpreter.StandIn
 import ma7moud3ly.fast.compose.parser.Diagnostic
 import ma7moud3ly.fast.compose.parser.KotlinParser
 import kotlin.test.Test
@@ -92,6 +95,16 @@ class FoundationBindingsTest {
             }
         """
         assertEquals("true|default|5|3|3|true", runClean(code))
+    }
+
+    @Test
+    fun layoutDirectionAndProvidedStandIns() {
+        val provided = runClean("fun test() = LocalLayoutDirection provides LayoutDirection.Rtl")
+        assertEquals(LayoutDirection.Rtl, (provided as ProvidedValue<*>).value)
+
+        // A stand-in is not provided, so Compose never receives a value of the wrong type.
+        val program = KotlinParser.parse("fun test() = LocalLayoutDirection provides RightToLeft").program
+        assertTrue(Interpreter(program, registry).call("test") is StandIn)
     }
 
     @Test

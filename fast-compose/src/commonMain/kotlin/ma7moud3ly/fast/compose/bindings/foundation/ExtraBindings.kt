@@ -74,6 +74,7 @@ import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 
 /** CompositionLocal, styled text, gestures, BoxWithConstraints and animated content. */
 internal fun Registry.extras() {
@@ -96,7 +97,10 @@ private fun Registry.compositionLocals() {
         val default = a.calculation("defaultFactory")
         staticCompositionLocalOf { default() }
     }
-    member<ProvidableCompositionLocal<*>>("provides(value)") { local, a -> (local as ProvidableCompositionLocal<Any?>) provides a["value"] }
+    // Compose casts a provided value to the local's type, so a stand-in is not provided: the local keeps its value.
+    member<ProvidableCompositionLocal<*>>("provides(value)") { local, a ->
+        if (a.isStandIn("value")) a["value"] else (local as ProvidableCompositionLocal<Any?>) provides a["value"]
+    }
     composableMember<CompositionLocal<*>>("current") { local, _ -> local.current }
     composable("CompositionLocalProvider(vararg values, content)") { a ->
         ProvideLocals(a.varargs("values").filterIsInstance<ProvidedValue<*>>(), a.content())
@@ -106,6 +110,9 @@ private fun Registry.compositionLocals() {
     function("Density(density, fontScale)") { a -> Density(a.float("density", 1f), a.float("fontScale", 1f)) }
     properties<Density>("density" to { it.density }, "fontScale" to { it.fontScale })
     value("LocalLayoutDirection", LocalLayoutDirection)
+    type<LayoutDirection>("LayoutDirection")
+    value("LayoutDirection", LayoutDirections)
+    constants<LayoutDirections>("Ltr" to LayoutDirection.Ltr, "Rtl" to LayoutDirection.Rtl)
 }
 
 /** Calls `CompositionLocalProvider` from a named function, like `Keyed`, to keep the vararg spread out of registry lambdas. */
@@ -178,6 +185,9 @@ private fun Registry.annotatedStrings() {
 
 /** Marker for `Orientation.Horizontal` and `Orientation.Vertical` (an enum without a companion). */
 private object Orientations
+
+/** Marker for `LayoutDirection.Ltr` and `LayoutDirection.Rtl` (an enum without a companion). */
+private object LayoutDirections
 
 private fun Registry.gestures() {
     type<PointerInputScope>("PointerInputScope")
