@@ -255,16 +255,42 @@ class InterpreterTest {
     }
 
     @Test
-    fun namesThatAreNotImportedStayUnresolved() {
-        val error = assertFailsWith<InterpreterException> { run("fun test() = getTimeMillis()") }
-        assertEquals("Unresolved reference 'getTimeMillis'", error.message)
+    fun unknownNamesRunAsStandInsButTyposFail() {
+        val (result, problems) = runWithProblems("fun test() = \"t=\" + getTimeMillis()")
+        assertEquals("t=", result)
+        assertTrue(problems.single().isWarning, problems.toString())
+
+        val code = """
+            fun label(text: String) = text
+            fun test() = lable("x")
+        """.trimIndent()
+        val error = assertFailsWith<InterpreterException> { run(code) }
+        assertEquals("Unresolved reference 'lable'. Did you mean 'label'?", error.message)
+    }
+
+    @Test
+    fun missingMembersRunAsStandIns() {
+        val (result, problems) = runWithProblems(
+            """
+            data class Box(val size: Int)
+
+            fun test(): String {
+                val box = Box(3)
+                val pair = Pair(1, 2)
+                pair.extra = 3
+                return "" + box.size + "|" + box.color + "|" + box.resize(2)
+            }
+            """,
+        )
+        assertEquals("3||", result)
+        assertEquals(3, problems.size, problems.toString())
     }
 
     @Test
     fun objectPropertiesInitializeOnFirstRead() {
         val code = """
             object Themes {
-                val broken = missing()
+                val broken = tset()
                 val ok = "fine"
                 val alias = broken
             }
@@ -275,7 +301,7 @@ class InterpreterTest {
         val interpreter = interpreter(code)
         assertEquals("fine", interpreter.call("test"))
         val error = assertFailsWith<InterpreterException> { interpreter.call("alias") }
-        assertEquals("Unresolved reference 'missing'", error.message)
+        assertEquals("Unresolved reference 'tset'. Did you mean 'test'?", error.message)
     }
 
     @Test
@@ -468,11 +494,12 @@ class InterpreterTest {
 
     @Test
     fun failingDefaultsUseEmptyValues() {
+        // Typos of `test` and `next` fail; unknown names would run as stand-ins instead.
         val (result, problems) = runWithProblems(
             """
-            data class Bookmark(val id: Int, val time: Long = currentMillis(), val note: String = missingNote())
+            data class Bookmark(val id: Int, val time: Long = tset(), val note: String = nxet())
 
-            fun next(x: Int = boom()) = x + 1
+            fun next(x: Int = tset()) = x + 1
 
             fun test() = Bookmark(1).toString() + "|" + next()
             """,
@@ -722,7 +749,7 @@ class InterpreterTest {
 
     @Test
     fun interpreterErrorsAreNotCaught() {
-        assertFailsWith<InterpreterException> { run("fun test() = try { missing() } catch (e: Exception) { 0 }") }
+        assertFailsWith<InterpreterException> { run("fun test() = try { tset() } catch (e: Exception) { 0 }") }
     }
 
     @Test

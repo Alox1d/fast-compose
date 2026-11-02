@@ -2,6 +2,7 @@ package ma7moud3ly.fast.compose.interpreter
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
+import androidx.compose.ui.Modifier
 import ma7moud3ly.fast.compose.parser.Span
 import ma7moud3ly.fast.compose.parser.ast.*
 import kotlin.coroutines.cancellation.CancellationException
@@ -81,6 +82,9 @@ public class Interpreter(
 
     /** Keys of warnings already shown, so each is shown once: stand-ins, functions without a body. */
     private val warnedOnce = mutableSetOf<String>()
+
+    /** Whether an unknown name may run as a stand-in (no hint, no close known name), by name. */
+    private val standInNames = mutableMapOf<String, Boolean>()
 
     /** Span of the expression being evaluated; errors are reported at its line. */
     private var location: Span? = null
@@ -733,6 +737,7 @@ public class Interpreter(
         if (value !== Unresolved) return Target.Done(value)
         env.file.memberImports[name]?.let { import -> importedMemberCall(import, args, env)?.let { return it } }
         importedStandIn(name, env.file)?.let { return Target.Done(it) }
+        unknownStandIn(name)?.let { return Target.Done(it) }
         return null
     }
 
@@ -880,7 +885,8 @@ public class Interpreter(
     /** Matches call arguments to a binding's [signature]; problems such as unknown parameter names are reported. */
     private fun toArgs(args: CallArgs, env: Env, signature: Signature): Args {
         val match = signature.match(args.positional, args.named, args.trailing)
-        for (problem in match.problems) report(problem)
+        // The argument is ignored or replaced by a default, so the call still runs.
+        for (problem in match.problems) warn(problem)
         return Args(signature, match.values, env.receivers, this)
     }
 
@@ -943,11 +949,15 @@ public class Interpreter(
         file?.program?.imports?.firstOrNull { !it.isStar && it.visibleName == name }?.let {
             return InterpreterException("Unresolved reference '$name' (imported from ${it.declarationPackage})")
         }
-        val known = registry.globalNames() + main.functions.keys + main.classes.keys
-        val suggestion =
-            known.filter { editDistance(it, name) <= 2 }.minByOrNull { editDistance(it, name) }
+        val suggestion = suggestionFor(name)
         return InterpreterException("Unresolved reference '$name'" + (suggestion?.let { ". Did you mean '$it'?" }
             ?: ""))
+    }
+
+    /** A known name within two edits of [name], e.g. `Text` for `Txet`; null if none. */
+    private fun suggestionFor(name: String): String? {
+        val known = registry.globalNames() + main.functions.keys + main.classes.keys
+        return known.filter { it != name && editDistance(it, name) <= 2 }.minByOrNull { editDistance(it, name) }
     }
 
     /** True for a package prefix like `androidx.compose.ui` in `androidx.compose.ui.Modifier`: lowercase names that resolve to nothing. */
@@ -1055,7 +1065,22 @@ public class Interpreter(
             if (imported !== Unresolved) return imported
         }
         importedStandIn(name, env.file)?.let { return it }
+        unknownStandIn(name)?.let { return it }
         throw unresolved(name, env.file)
+    }
+
+    /**
+     * Stand-in for a name nothing provides, e.g. a Kotlin or platform API without a binding such as `IntArray`, with
+     * one warning. Null, so the name stays an error, when it has a hint or is close to a known name, like a typo of
+     * `Text`.
+     */
+    private fun unknownStandIn(name: String): StandIn? {
+        val allowed = standInNames.getOrPut(name) { registry.findHint(name) == null && suggestionFor(name) == null }
+        if (!allowed) return null
+        if (warnedOnce.add("name:$name")) {
+            warn("'$name' is not available in previews; a stand-in is used, so the preview may differ")
+        }
+        return StandIn(name)
     }
 
     /**
@@ -1114,16 +1139,28 @@ public class Interpreter(
 
     private fun getMember(receiver: Any?, name: String): Any? {
         val value = tryGetMember(receiver, name)
-        if (value === Unresolved) throw InterpreterException(
-            "Unresolved reference '$name' on ${typeName(receiver)}"
-        )
-        return value
+        return if (value === Unresolved) missingMember(receiver, name) else value
     }
 
-    private fun callMember(receiver: Any?, name: String, args: CallArgs, env: Env): Any? {
-        val target = resolveMemberCall(receiver, name, args, env)
-            ?: throw InterpreterException("Unresolved reference '$name' on ${typeName(receiver)}")
-        return invokeTarget(target, args, name)
+    private fun callMember(receiver: Any?, name: String, args: CallArgs, env: Env): Any? =
+        invokeTarget(memberTarget(receiver, name, args, env), args, name)
+
+    /** Target of a member call; a member nothing provides gives [missingMember] instead of failing. */
+    private fun memberTarget(receiver: Any?, name: String, args: CallArgs, env: Env): Target =
+        resolveMemberCall(receiver, name, args, env) ?: Target.Done(missingMember(receiver, name))
+
+    /**
+     * Value of a member nothing provides, such as a Compose or library API without a binding, with one warning per
+     * type and name: a `Modifier` stays unchanged, so the rest of its chain still applies; anything else gives a
+     * stand-in.
+     */
+    private fun missingMember(receiver: Any?, name: String): Any? {
+        val type = typeName(receiver)
+        if (warnedOnce.add("member:$type.$name")) {
+            warn("'$name' on $type has no binding; " +
+                if (receiver is Modifier) "it is skipped" else "a stand-in is used, so the preview may differ")
+        }
+        return if (receiver is Modifier) receiver else StandIn("$type.$name")
     }
 
     // ---------- Intrinsics: scope functions and loops whose lambdas may contain composable calls ----------
@@ -1542,7 +1579,11 @@ public class Interpreter(
         if (receiver is UserValue && receiver.hasField(name)) return receiver.write(name, value)
         if (builtins.setProperty(receiver, name, value)) return
         registry.findSetter(receiver, name)?.let { return it(receiver, value) }
-        throw InterpreterException("Cannot assign '$name' on ${typeName(receiver)}")
+        if (receiver is UserValue) throw InterpreterException("Cannot assign '$name' on ${typeName(receiver)}")
+        // A library value without a binding for this property: the assignment is skipped.
+        if (warnedOnce.add("set:${typeName(receiver)}.$name")) {
+            warn("Assigning '$name' on ${typeName(receiver)} has no binding; it is skipped")
+        }
     }
 
     // ---------- Expressions ----------
@@ -2082,7 +2123,7 @@ public class Interpreter(
                             )
                         } else {
                             invokeTargetC(guard {
-                                resolveMemberCall(
+                                memberTarget(
                                     receiver,
                                     callee.name,
                                     args,
@@ -2560,11 +2601,7 @@ public class Interpreter(
                 if (receiver is Jump) return receiver
                 locate(call.span, env)
                 if (callee.isSafe && receiver == null) return null
-                val target = resolveMemberCall(receiver, callee.name, args, env)
-                    ?: throw InterpreterException(
-                        "Unresolved reference '${callee.name}' on ${typeName(receiver)}"
-                    )
-                invokeTargetS(target, args, callee.name)
+                invokeTargetS(memberTarget(receiver, callee.name, args, env), args, callee.name)
             }
 
             else -> evalS(callee, env).let {

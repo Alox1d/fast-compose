@@ -27,7 +27,9 @@ Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it
   Libraries such as ViewModel, Hilt or Room are not available unless you add bindings for them. An imported library
   API without a binding runs as a stand-in, with a warning: calls and members on it give stand-ins, conditions on
   it are false, loops over it are empty, it shows as empty text, and components use their defaults instead. So the
-  screen around it still renders.
+  screen around it still renders. The same goes for other APIs without a binding: a missing member gives a stand-in
+  (an unknown `Modifier` call is skipped), an unknown name gives a stand-in unless it is close to a known one (a
+  typo such as `Txet` stays an error), and an unknown or invalid argument to a component is a warning.
 - **Platform code.** An `expect` function whose `actual` is not loaded does nothing if it returns nothing, and
   fails otherwise. A default argument that fails gives the empty value of its type (`0`, `""`, `false`, `null`, an
   empty list), with a warning, so sample data still builds.

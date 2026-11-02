@@ -5,7 +5,6 @@ import ma7moud3ly.fast.compose.parser.ast.Program
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 class MultiFileTest {
@@ -150,7 +149,8 @@ class MultiFileTest {
 
             fun test() = secret()
         """
-        assertFailsWith<InterpreterException> { run(code) }
+        // The private function of Cards.kt is not visible here, so the call gives a stand-in, not its "ui".
+        assertTrue(run(code) is StandIn)
     }
 
     @Test
@@ -293,8 +293,8 @@ class MultiFileTest {
         )
         val loaded = SourceLoader(provider).load(main)
         val interpreter = Interpreter(main, Registry(), onError = { errors += it }, dependencies = loaded.dependencies)
-        assertFailsWith<InterpreterException> { interpreter.call("test") }
-        interpreter.report("problem")
-        assertTrue(errors.single().toString().startsWith("Cards.kt:5:"), errors.toString())
+        interpreter.call("test")
+        // `user.name` on an Int is a missing member, reported where it is used: line 5 of Cards.kt.
+        assertTrue(errors.first().toString().startsWith("Cards.kt:5:"), errors.toString())
     }
 }

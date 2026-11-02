@@ -43,7 +43,7 @@ public class Args internal constructor(
 
     @PublishedApi
     internal fun invalid(name: String, value: Any?) {
-        report("Invalid value for '$name' of ${signature.name}: ${typeName(value)}")
+        warn("Invalid value for '$name' of ${signature.name}: ${typeName(value)}; its default is used")
     }
 
     /** Reports a problem to the preview's error log without failing the call. */
