@@ -63,6 +63,8 @@ internal class Builtins(private val interpreter: Interpreter) {
             "mutableSetOf" -> a.toMutableSet()
             "emptySet" -> emptySet<Any?>()
             "mapOf" -> a.associate { pairOf(it) }
+            "sortedMapOf" -> sortedByKey(a.map { pairOf(it) }, null)
+            "sortedSetOf" -> a.sortedWith(comparator(null)).toCollection(LinkedHashSet())
             "mutableMapOf" -> a.associate { pairOf(it) }.toMutableMap()
             "emptyMap" -> emptyMap<Any?, Any?>()
             "Pair" -> Pair(a[0], a[1])
@@ -139,6 +141,20 @@ internal class Builtins(private val interpreter: Interpreter) {
         "DoubleArray" -> 0.0
         "BooleanArray" -> false
         else -> 0
+    }
+
+    /** A Kotlin [Comparator] passed to a sorting function, or the natural order of interpreted values. */
+    @Suppress("UNCHECKED_CAST")
+    private fun comparator(value: Any?): Comparator<Any?> =
+        value as? Comparator<Any?> ?: Comparator { x, y -> Operators.compare(x, y) as Int }
+
+    /**
+     * A map of [pairs] in the order of their keys, for `toSortedMap()` and `sortedMapOf()`; later puts keep insertion
+     * order instead of sorting, which previews don't rely on.
+     */
+    private fun sortedByKey(pairs: List<Pair<Any?, Any?>>, comparator: Any?): MutableMap<Any?, Any?> {
+        val order = comparator(comparator)
+        return pairs.sortedWith { x, y -> order.compare(x.first, y.first) }.toMap(LinkedHashMap())
     }
 
     /** Message from the lambda of `require(value) { "message" }`, or [default]. */
@@ -565,6 +581,7 @@ internal class Builtins(private val interpreter: Interpreter) {
             "toList" -> list.toList()
             "toMutableList" -> list.toMutableList()
             "toSet" -> list.toSet()
+            "toSortedSet" -> list.sortedWith(comparator(a.firstOrNull())).toCollection(LinkedHashSet())
             "toMutableSet" -> list.toMutableSet()
             "ifEmpty" -> if (list.isEmpty()) call(fn) else items
             "add" -> (items as? MutableCollection<Any?>)?.let {
@@ -608,6 +625,7 @@ internal class Builtins(private val interpreter: Interpreter) {
             "plus" -> m + pairOf(a[0])
             "minus" -> m - a[0]
             "toMutableMap" -> m.toMutableMap()
+            "toSortedMap" -> sortedByKey(m.entries.map { it.key to it.value }, a.firstOrNull())
             // `put` and `remove` return the previous value, often null, so only a read-only map is unresolved.
             "put" -> if (m is MutableMap<*, *>) (m as MutableMap<Any?, Any?>).put(a[0], a[1]) else Unresolved
             "remove" -> if (m is MutableMap<*, *>) (m as MutableMap<Any?, Any?>).remove(a[0]) else Unresolved

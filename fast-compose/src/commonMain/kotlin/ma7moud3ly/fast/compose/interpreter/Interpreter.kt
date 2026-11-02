@@ -1064,6 +1064,8 @@ public class Interpreter(
 
     /** A known name within two edits of [name], e.g. `Text` for `Txet`; null if none. */
     private fun suggestionFor(name: String): String? {
+        // Kotlin type names are never typos, e.g. `String` in `String.format(…)` is not `spring`.
+        if (name in KOTLIN_TYPES) return null
         val known = registry.globalNames() + main.functions.keys + main.classes.keys
         return known.filter { it != name && editDistance(it, name) <= 2 }.minByOrNull { editDistance(it, name) }
     }

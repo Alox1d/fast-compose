@@ -243,6 +243,18 @@ class FoundationBindingsTest {
     }
 
     @Test
+    fun stringFormat() {
+        val code = """
+            class HomeUiState(val buildType: String? = null) {
+                val appVersion = String.format("Version : %s %s", buildType, 3)
+            }
+
+            fun test() = listOf(HomeUiState("debug").appVersion, "%.1f%%".format(12.34), String.valueOf(7))
+        """.trimIndent()
+        assertEquals(listOf("Version : debug 3", "12.3%", "7"), run(code))
+    }
+
+    @Test
     fun systemBarCodeIsSilent() {
         val problems = mutableListOf<RuntimeError>()
         val code = """

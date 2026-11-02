@@ -945,38 +945,49 @@ public class Parser(private val tokens: List<Token>) {
         }
     }
 
-    /** Checks for `a, (b, c), d: Type ->` (or a bare `->`) at the start of a lambda. */
+    /** Checks for `a, (b, c: Type), d: Type ->` (or a bare `->`) at the start of a lambda. */
     private fun hasLambdaParams(): Boolean {
         var i = pos
         if (tokens[i].type == ARROW) return true
         while (true) {
             if (tokens[i].type == LPAREN) {
                 i++
-                while (tokens[i].type == IDENTIFIER || tokens[i].type == COMMA) i++
-                if (tokens[i].type != RPAREN) return false
+                while (tokens[i].type != RPAREN) {
+                    if (tokens[i].type != IDENTIFIER) return false
+                    i++
+                    if (tokens[i].type == COLON) i = typeEnd(i + 1) ?: return false
+                    if (tokens[i].type == COMMA) i++ else if (tokens[i].type != RPAREN) return false
+                }
             } else if (tokens[i].type != IDENTIFIER) {
                 return false
             }
             i++
-            if (tokens[i].type == COLON) {
-                var depth = 0
-                i++
-                while (true) {
-                    when (tokens[i].type) {
-                        LT, LPAREN -> depth++
-                        GT, RPAREN -> depth--
-                        COMMA, ARROW -> if (depth == 0) break
-                        NEWLINE, RBRACE, LBRACE, EOF, SEMICOLON -> return false
-                        else -> Unit
-                    }
-                    i++
-                }
-            }
+            if (tokens[i].type == COLON) i = typeEnd(i + 1) ?: return false
             when (tokens[i].type) {
                 COMMA -> i++
                 ARROW -> return true
                 else -> return false
             }
+        }
+    }
+
+    /**
+     * Index after a type that starts at [start] in a lambda parameter list: the `,`, `->` or closing `)` that ends it,
+     * outside its own brackets. Null when the tokens can't be a parameter type.
+     */
+    private fun typeEnd(start: Int): Int? {
+        var depth = 0
+        var i = start
+        while (true) {
+            when (tokens[i].type) {
+                LT, LPAREN -> depth++
+                GT -> depth--
+                RPAREN -> if (depth == 0) return i else depth--
+                COMMA, ARROW -> if (depth == 0) return i
+                NEWLINE, RBRACE, LBRACE, EOF, SEMICOLON -> return null
+                else -> Unit
+            }
+            i++
         }
     }
 

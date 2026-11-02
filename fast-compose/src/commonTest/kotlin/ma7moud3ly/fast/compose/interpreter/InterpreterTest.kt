@@ -333,6 +333,19 @@ class InterpreterTest {
     }
 
     @Test
+    fun sortedMapsAndTypedDestructuring() {
+        val code = """
+            fun test(): List<Any> {
+                val grouped = listOf("kia", "bmw", "audi", "byd").groupBy { it.first() }.toSortedMap()
+                val lines = mutableListOf<String>()
+                grouped.forEach { (letter: Char, names: List<String>) -> lines += "" + letter + names.size }
+                return listOf(lines, sortedSetOf(3, 1, 2).toList(), listOf("b", "a").toSortedSet().toList())
+            }
+        """.trimIndent()
+        assertEquals(listOf(listOf("a1", "b2", "k1"), listOf(1, 2, 3), listOf("a", "b")), run(code))
+    }
+
+    @Test
     fun primitiveArraysAndMath() {
         val code = """
             fun test(): List<Any> {

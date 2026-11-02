@@ -1,6 +1,7 @@
 package ma7moud3ly.fast.compose.bindings.foundation
 
 import androidx.compose.ui.text.intl.Locale
+import ma7moud3ly.fast.compose.bindings.resources.formatResource
 import ma7moud3ly.fast.compose.interpreter.Registry
 import ma7moud3ly.fast.compose.interpreter.StandIn
 import kotlin.random.Random
@@ -10,6 +11,9 @@ import kotlin.time.Instant
 
 /** `java.lang.Integer`. */
 internal object JavaInteger
+
+/** `String.format(…)` and `String.valueOf(…)`: `String` used as a value. */
+internal object StringCompanion
 
 /** Kotlin's `Long` companion and `java.lang.Long`: `Long.MAX_VALUE`, `parseLong`. */
 internal object JavaLong
@@ -38,6 +42,12 @@ internal const val PREVIEW_SDK_INT = 30
  */
 @OptIn(ExperimentalTime::class)
 internal fun Registry.platform() {
+    value("String", StringCompanion)
+    member<StringCompanion>("format(format, vararg args)") { _, a -> formatResource(a.string("format"), a.varargs("args")) }
+    member<StringCompanion>("valueOf(obj)") { _, a -> a.string("obj", "null") }
+    member<String>("format(vararg args)") { text, a -> formatResource(text, a.varargs("args")) }
+    function("String(chars)") { a -> (a["chars"] as? List<*>)?.joinToString("") ?: a.string("chars") }
+
     value("Integer", JavaInteger)
     constants<JavaInteger>("MAX_VALUE" to Int.MAX_VALUE, "MIN_VALUE" to Int.MIN_VALUE)
     member<JavaInteger>("parseInt(s)") { _, a -> a.string("s").trim().toInt() }
