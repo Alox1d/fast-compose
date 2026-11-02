@@ -503,7 +503,11 @@ public class Interpreter(
                 initializer != null -> { { eval(initializer, env) } }
                 else -> null
             }
-            if (compute != null) value.fields[member.name] = if (isObject) LazyField(compute) else compute()
+            when {
+                compute != null -> value.fields[member.name] = if (isObject) LazyField(compute) else compute()
+                // A stored property assigned later, e.g. a `lateinit var` or a `val` set in `init`.
+                member.getter == null -> value.fields[member.name] = Uninitialized
+            }
         }
         for (block in decl.initBlocks) evalBlock(block, env.child())
     }
@@ -589,23 +593,31 @@ public class Interpreter(
 
     private fun topLevelProperty(decl: PropertyDecl): Any? {
         if (decl.getter != null) return evalGetter(decl, NoReceiver)
-        val scope = scopeOf(decl)
-        val root = scope.root
-        val propertyValues = scope.propertyValues
-        if (decl.name !in propertyValues) {
-            propertyValues[decl.name] = Unresolved
-            val delegate = decl.delegate
-            val initializer = decl.initializer
-            propertyValues[decl.name] = when {
-                delegate != null -> Delegated(eval(delegate, root))
-                initializer != null -> eval(initializer, root)
-                else -> null
-            }
-        }
-        return when (val value = propertyValues[decl.name]) {
+        initializeTopLevel(decl)
+        return when (val value = scopeOf(decl).propertyValues[decl.name]) {
             Unresolved -> throw InterpreterException("Property '${decl.name}' depends on itself")
+            Uninitialized -> throw notInitialized(decl.name)
             is Delegated -> value.get()
             else -> value
+        }
+    }
+
+    /**
+     * Computes a top-level property's value on first use. Without an initializer a `var` (e.g. `lateinit var`) starts
+     * unset, and a `val` (e.g. an `expect val` without its `actual`) is null.
+     */
+    private fun initializeTopLevel(decl: PropertyDecl) {
+        val scope = scopeOf(decl)
+        val propertyValues = scope.propertyValues
+        if (decl.name in propertyValues) return
+        propertyValues[decl.name] = Unresolved
+        val delegate = decl.delegate
+        val initializer = decl.initializer
+        propertyValues[decl.name] = when {
+            delegate != null -> Delegated(eval(delegate, scope.root))
+            initializer != null -> eval(initializer, scope.root)
+            decl.isVar -> Uninitialized
+            else -> null
         }
     }
 
@@ -1518,7 +1530,7 @@ public class Interpreter(
         }
         val property = env.file.properties[name] ?: throw unresolved(name)
         if (!property.isVar) throw InterpreterException("Val cannot be reassigned: '$name'")
-        topLevelProperty(property)
+        initializeTopLevel(property)
         val propertyValues = scopeOf(property).propertyValues
         val current = propertyValues[name]
         if (current is Delegated) current.set(value) else propertyValues[name] = value

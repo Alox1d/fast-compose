@@ -30,6 +30,11 @@ internal object Unresolved
 /** Marks an [Env] scope without an implicit receiver. */
 internal object NoReceiver
 
+/** Value of a property declared without an initializer, such as a `lateinit var`, until it is assigned. */
+internal object Uninitialized
+
+internal fun notInitialized(name: String) = InterpreterException("lateinit property '$name' has not been initialized")
+
 /** Value produced by a runtime error inside composition; rendered once as an error box where it occurred. */
 public class ErrorValue(public val message: String) {
     internal var shown = false
@@ -94,7 +99,11 @@ public abstract class UserValue internal constructor(public val decl: ClassDecl)
 
     internal fun hasField(name: String) = name in fields
 
-    internal fun read(name: String): Any? = initialized(name).let { if (it is Delegated) it.get() else it }
+    internal fun read(name: String): Any? = when (val value = initialized(name)) {
+        is Delegated -> value.get()
+        Uninitialized -> throw notInitialized(name)
+        else -> value
+    }
 
     internal fun write(name: String, value: Any?) {
         val current = initialized(name)

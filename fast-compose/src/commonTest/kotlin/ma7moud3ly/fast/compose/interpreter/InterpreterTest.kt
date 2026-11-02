@@ -313,6 +313,64 @@ class InterpreterTest {
     }
 
     @Test
+    fun propertiesWithoutAnInitializer() {
+        val code = """
+            class Manager {
+                private lateinit var session: String
+                val count: Int
+
+                init {
+                    count = 2
+                }
+
+                fun open(session: String) {
+                    this.session = session
+                }
+
+                fun current() = session
+            }
+
+            lateinit var global: String
+
+            fun test(): String {
+                val manager = Manager()
+                manager.open("s1")
+                global = "g"
+                return manager.current() + "|" + manager.count + "|" + global
+            }
+
+            fun early() = Manager().current()
+        """.trimIndent()
+        val interpreter = interpreter(code)
+        assertEquals("s1|2|g", interpreter.call("test"))
+        val error = assertFailsWith<InterpreterException> { interpreter.call("early") }
+        assertEquals("lateinit property 'session' has not been initialized", error.message)
+    }
+
+    @Test
+    fun stringHelpers() {
+        val code = """
+            fun test(): String {
+                val path = "/lib/main.py"
+                return listOf(
+                    path.substringAfterLast('/'),
+                    path.substringBeforeLast('/', ""),
+                    "noslash".substringBeforeLast('/', ""),
+                    path.substringAfter("/"),
+                    path.substringBefore(".py"),
+                    "main.py".removeSuffix(".py"),
+                    "#tag".removePrefix("#"),
+                    "(x)".removeSurrounding("(", ")"),
+                    "  a  ".trimStart() + "|",
+                    "|" + "  a  ".trimEnd(),
+                    "" + path.lastIndexOf('/')
+                ).joinToString(",")
+            }
+        """.trimIndent()
+        assertEquals("main.py,/lib,,lib/main.py,/lib/main,main,tag,x,a  |,|  a,4", run(code))
+    }
+
+    @Test
     fun builders() {
         val code = """
             fun test(): Int {

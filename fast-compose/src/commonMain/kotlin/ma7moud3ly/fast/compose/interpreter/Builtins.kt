@@ -317,6 +317,21 @@ internal class Builtins(private val interpreter: Interpreter) {
             "endsWith" -> s.endsWith(str(a[0]))
             "contains" -> (a[0] as? Char)?.let { it in s } ?: s.contains(str(a[0]))
             "indexOf" -> (a[0] as? Char)?.let { s.indexOf(it) } ?: s.indexOf(str(a[0]))
+            "lastIndexOf" -> s.lastIndexOf(str(a[0]), a.getOrNull(1)?.let { int(it) } ?: s.lastIndex)
+            // The delimiter may be a Char or a String; the second argument is the result when it is missing.
+            "substringBefore" -> s.substringBefore(str(a[0]), a.getOrNull(1)?.let { str(it) } ?: s)
+            "substringAfter" -> s.substringAfter(str(a[0]), a.getOrNull(1)?.let { str(it) } ?: s)
+            "substringBeforeLast" -> s.substringBeforeLast(str(a[0]), a.getOrNull(1)?.let { str(it) } ?: s)
+            "substringAfterLast" -> s.substringAfterLast(str(a[0]), a.getOrNull(1)?.let { str(it) } ?: s)
+            "removePrefix" -> s.removePrefix(str(a[0]))
+            "removeSuffix" -> s.removeSuffix(str(a[0]))
+            "removeSurrounding" -> if (a.size >= 2) {
+                s.removeSurrounding(str(a[0]), str(a[1]))
+            } else {
+                s.removeSurrounding(str(a[0]))
+            }
+            "trimStart" -> s.trimStart()
+            "trimEnd" -> s.trimEnd()
             "substring" -> if (a.size > 1) s.substring(
                 int(a[0]),
                 int(a[1])
