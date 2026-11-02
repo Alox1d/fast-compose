@@ -1,5 +1,7 @@
 package ma7moud3ly.fast.compose.bindings.foundation
 
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontFamily
 import ma7moud3ly.fast.compose.interpreter.Interpreter
 import ma7moud3ly.fast.compose.interpreter.Registry
 import ma7moud3ly.fast.compose.interpreter.RuntimeError
@@ -7,6 +9,7 @@ import ma7moud3ly.fast.compose.parser.Diagnostic
 import ma7moud3ly.fast.compose.parser.KotlinParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class FoundationBindingsTest {
 
@@ -49,6 +52,46 @@ class FoundationBindingsTest {
         val program = KotlinParser.parse(code).program
         assertEquals(true, Interpreter(program, registry, onError = { problems += it }).call("test"))
         assertEquals(emptyList(), problems)
+    }
+
+    /** Runs `test()` and checks that no problem was reported while it ran. */
+    private fun runClean(code: String): Any? {
+        val problems = mutableListOf<RuntimeError>()
+        val program = KotlinParser.parse(code.trimIndent()).program
+        val result = Interpreter(program, registry, onError = { problems += it }).call("test")
+        assertEquals(emptyList(), problems)
+        return result
+    }
+
+    @Test
+    fun stateFlows() {
+        val code = """
+            fun test(): Int {
+                val state = MutableStateFlow(1)
+                val readOnly = state.asStateFlow()
+                state.update { it + 1 }
+                return readOnly.value
+            }
+        """
+        assertEquals(2, runClean(code))
+    }
+
+    @Test
+    fun spacedByWithAlignment() {
+        val code = "fun test() = Arrangement.spacedBy(4.dp, Alignment.CenterVertically) != Arrangement.spacedBy(4.dp)"
+        assertEquals(true, runClean(code))
+    }
+
+    @Test
+    fun strokeWithPathEffect() {
+        val code = "fun test() = Stroke(width = 2f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 2f), 0f))"
+        val stroke = runClean(code)
+        assertTrue((stroke as Stroke).pathEffect != null)
+    }
+
+    @Test
+    fun fontFamilyWithoutFontsIsTheDefault() {
+        assertEquals(FontFamily.Default, runClean("fun test() = FontFamily()"))
     }
 
     @Test

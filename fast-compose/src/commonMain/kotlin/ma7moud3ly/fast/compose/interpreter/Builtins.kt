@@ -520,12 +520,12 @@ internal class Builtins(private val interpreter: Interpreter) {
                 ?: Unresolved
 
             "remove" -> (items as? MutableCollection<Any?>)?.remove(a[0]) ?: Unresolved
-            "removeAt" -> (items as? MutableList<Any?>)?.removeAt(int(a[0])) ?: Unresolved
+            "removeAt" -> if (items is MutableList<*>) (items as MutableList<Any?>).removeAt(int(a[0])) else Unresolved
             "removeAll" -> (items as? MutableCollection<Any?>)?.removeAll { predicate(fn, it) }
                 ?: Unresolved
 
             "clear" -> (items as? MutableCollection<Any?>)?.clear() ?: Unresolved
-            "set" -> (items as? MutableList<Any?>)?.set(int(a[0]), a[1]) ?: Unresolved
+            "set" -> if (items is MutableList<*>) (items as MutableList<Any?>).set(int(a[0]), a[1]) else Unresolved
             else -> Unresolved
         }
     }
@@ -550,10 +550,15 @@ internal class Builtins(private val interpreter: Interpreter) {
             "plus" -> m + pairOf(a[0])
             "minus" -> m - a[0]
             "toMutableMap" -> m.toMutableMap()
-            "put" -> (m as? MutableMap<Any?, Any?>)?.put(a[0], a[1]) ?: Unresolved
-            "remove" -> (m as? MutableMap<Any?, Any?>)?.remove(a[0]) ?: Unresolved
+            // `put` and `remove` return the previous value, often null, so only a read-only map is unresolved.
+            "put" -> if (m is MutableMap<*, *>) (m as MutableMap<Any?, Any?>).put(a[0], a[1]) else Unresolved
+            "remove" -> if (m is MutableMap<*, *>) (m as MutableMap<Any?, Any?>).remove(a[0]) else Unresolved
             "clear" -> (m as? MutableMap<Any?, Any?>)?.clear() ?: Unresolved
-            "getOrPut" -> (m as? MutableMap<Any?, Any?>)?.getOrPut(a[0]) { call(fn) } ?: Unresolved
+            "getOrPut" -> if (m is MutableMap<*, *>) {
+                (m as MutableMap<Any?, Any?>).getOrPut(a[0]) { call(fn) }
+            } else {
+                Unresolved
+            }
             else -> Unresolved
         }
     }

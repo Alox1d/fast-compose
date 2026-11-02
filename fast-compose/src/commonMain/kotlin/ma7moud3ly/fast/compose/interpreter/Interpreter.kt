@@ -397,6 +397,13 @@ public class Interpreter(
         return value
     }
 
+    /** Empty mutable collection that `buildList`, `buildSet` or `buildMap` ([name]) fills through its lambda. */
+    private fun builderCollection(name: String): Any = when (name) {
+        "buildSet" -> mutableSetOf<Any?>()
+        "buildMap" -> mutableMapOf<Any?, Any?>()
+        else -> mutableListOf<Any?>()
+    }
+
     private fun functionResult(result: Any?): Any? = when {
         result is Jump && result.kind == Jump.Kind.RETURN -> result.value
         result is Jump -> throw InterpreterException("'break' and 'continue' are only allowed inside a loop")
@@ -1136,6 +1143,10 @@ public class Interpreter(
 
             "run" -> if (receiver === NoReceiver) invoke(NoReceiver) else invoke(receiver)
             "with" -> invoke(args.positional.firstOrNull())
+            "buildList", "buildSet", "buildMap" -> {
+                val collection = builderCollection(target.name)
+                invoke(collection).let { if (it is Jump) it else collection }
+            }
             "let" -> invoke(NoReceiver, receiver)
             "also" -> invoke(NoReceiver, receiver).let { if (it is Jump) it else receiver }
             "apply" -> invoke(receiver).let { if (it is Jump) it else receiver }
@@ -1178,6 +1189,10 @@ public class Interpreter(
             )
 
             "with" -> invokeComposable(fn, args.positional.firstOrNull(), emptyList())
+            "buildList", "buildSet", "buildMap" -> {
+                val collection = builderCollection(target.name)
+                invokeComposable(fn, collection, emptyList()).let { if (isStop(it)) it else collection }
+            }
             "let" -> invokeComposable(fn, NoReceiver, listOf(receiver))
             "also" -> invokeComposable(
                 fn,
@@ -2565,6 +2580,10 @@ public class Interpreter(
 
             "run" -> invokeSuspend(fn, receiver, emptyList())
             "with" -> invokeSuspend(fn, args.positional.firstOrNull(), emptyList())
+            "buildList", "buildSet", "buildMap" -> {
+                val collection = builderCollection(target.name)
+                invokeSuspend(fn, collection, emptyList()).let { if (it is Jump) it else collection }
+            }
             "let" -> invokeSuspend(fn, NoReceiver, listOf(receiver))
             "also" -> invokeSuspend(
                 fn,
@@ -2677,7 +2696,7 @@ public class Interpreter(
         /** Default for [maxRunTime]: long enough for any real preview, short enough to avoid a frozen app. */
         val DEFAULT_MAX_RUN_TIME: Duration = 2.seconds
         val PAUSE = 50.milliseconds
-        val GLOBAL_INTRINSICS = setOf("repeat", "run", "with")
+        val GLOBAL_INTRINSICS = setOf("repeat", "run", "with", "buildList", "buildSet", "buildMap")
         val MEMBER_INTRINSICS = setOf("let", "also", "apply", "run", "forEach", "forEachIndexed")
         val ITERATING_INTRINSICS = setOf("forEach", "forEachIndexed")
     }

@@ -298,6 +298,25 @@ class InterpreterTest {
     }
 
     @Test
+    fun builders() {
+        val code = """
+            fun test(): Int {
+                val list = buildList {
+                    add(1)
+                    add(2)
+                }
+                val map = buildMap { put("a", 1) }
+                val set = buildSet {
+                    add(1)
+                    add(1)
+                }
+                return list.size * 100 + map.size * 10 + set.size
+            }
+        """.trimIndent()
+        assertEquals(211, run(code))
+    }
+
+    @Test
     fun companionMembersInsideTheirClass() {
         val code = """
             data class MicroFile(val name: String = "", private val type: Int = FILE) {

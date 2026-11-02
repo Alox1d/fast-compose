@@ -94,6 +94,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -447,6 +448,14 @@ private fun Registry.values() {
         "SpaceAround" to Arrangement.SpaceAround, "SpaceEvenly" to Arrangement.SpaceEvenly,
     )
     member<Arrangement>("spacedBy(space)") { _, a -> Arrangement.spacedBy(a.dp("space", 0.dp)) }
+    member<Arrangement>("spacedBy(space, alignment)") { _, a ->
+        val space = a.dp("space", 0.dp)
+        when (val alignment = a["alignment"]) {
+            is Alignment.Horizontal -> Arrangement.spacedBy(space, alignment)
+            is Alignment.Vertical -> Arrangement.spacedBy(space, alignment)
+            else -> Arrangement.spacedBy(space)
+        }
+    }
 
     value("CircleShape", CircleShape)
     value("RectangleShape", RectangleShape)
@@ -475,6 +484,11 @@ private fun Registry.values() {
     value("TextDecoration", TextDecoration.Companion)
     constants<TextDecoration.Companion>("None" to TextDecoration.None, "Underline" to TextDecoration.Underline, "LineThrough" to TextDecoration.LineThrough)
     value("FontFamily", FontFamily.Companion)
+    // Fonts that are stand-ins, e.g. `Font(Res.font.…)` without a binding, are left out; with none, the default font.
+    function("FontFamily(vararg fonts)") { a ->
+        val fonts = a.varargs("fonts").flatMap { if (it is List<*>) it else listOf(it) }.filterIsInstance<Font>()
+        if (fonts.isEmpty()) FontFamily.Default else FontFamily(fonts)
+    }
     constants<FontFamily.Companion>(
         "Default" to FontFamily.Default, "Monospace" to FontFamily.Monospace, "Serif" to FontFamily.Serif,
         "SansSerif" to FontFamily.SansSerif, "Cursive" to FontFamily.Cursive,

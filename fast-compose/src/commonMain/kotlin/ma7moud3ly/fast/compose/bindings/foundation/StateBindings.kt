@@ -19,6 +19,8 @@ import ma7moud3ly.fast.compose.interpreter.Registry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 
 /** Dark mode of the preview, e.g. from `@Preview(uiMode = UI_MODE_NIGHT_YES)`; `isSystemInDarkTheme()` returns it when set. */
 public val LocalPreviewDarkTheme: ProvidableCompositionLocal<Boolean?> = staticCompositionLocalOf<Boolean?> { null }
@@ -58,6 +60,11 @@ private fun Registry.flows() {
     function("MutableStateFlow(value)") { a -> MutableStateFlow(a["value"]) }
     properties<StateFlow<*>>("value" to { it.value })
     setter<MutableStateFlow<*>>("value") { flow, value -> (flow as MutableStateFlow<Any?>).value = value }
+    member<MutableStateFlow<*>>("asStateFlow()") { flow, _ -> flow.asStateFlow() }
+    member<MutableStateFlow<*>>("update(function)") { flow, a ->
+        val function = a.function1("function")
+        (flow as MutableStateFlow<Any?>).update { function(it) }
+    }
     function("snapshotFlow(block)") { a ->
         val block = a.calculation("block")
         snapshotFlow { block() }
