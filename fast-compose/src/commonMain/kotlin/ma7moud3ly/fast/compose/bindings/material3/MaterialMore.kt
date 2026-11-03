@@ -248,7 +248,7 @@ private fun Registry.pullToRefresh() {
             state = state,
             isRefreshing = a.boolean("isRefreshing", false),
             modifier = a.modifier(),
-            containerColor = a.color("containerColor", PullToRefreshDefaults.containerColor),
+            containerColor = a.color("containerColor", PullToRefreshDefaults.indicatorContainerColor),
             color = a.color("color", PullToRefreshDefaults.indicatorColor),
         )
     }

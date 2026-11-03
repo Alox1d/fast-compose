@@ -97,11 +97,11 @@ internal fun Registry.flowExtras() {
     }
     member<Flow<*>>("onStart(action)") { flow, a ->
         val action = a.suspendBlock<FlowCollector<Any?>>("action")
-        (flow as Flow<Any?>).onStart { action() }
+        flow.onStart { action() }
     }
     member<Flow<*>>("catch(action)") { flow, a ->
         val action = a.suspendAction1("action")
-        (flow as Flow<Any?>).catch { action(it) }
+        flow.catch { action(it) }
     }
     member<Flow<*>>("distinctUntilChanged()") { flow, _ -> flow.distinctUntilChanged() }
     member<Flow<*>>("filterNotNull()") { flow, _ -> flow.filterNotNull() }
@@ -116,7 +116,7 @@ internal fun Registry.flowExtras() {
     member<Flow<*>>("combine(flow, transform)") { flow, a ->
         val other = a.typedOrNull<Flow<*>>("flow") ?: flowOf(null)
         val transform = a.function2("transform")
-        combine(flow as Flow<Any?>, other as Flow<Any?>) { first, second -> transform(first, second) }
+        combine(flow, other) { first, second -> transform(first, second) }
     }
     member<Flow<*>>("stateIn(scope, started, initialValue)") { flow, a ->
         val scope = a.typedOrNull<CoroutineScope>("scope")
@@ -124,7 +124,7 @@ internal fun Registry.flowExtras() {
             a.warn("stateIn needs a CoroutineScope; the flow keeps its initial value")
             kotlinx.coroutines.flow.MutableStateFlow(a["initialValue"])
         } else {
-            (flow as Flow<Any?>).stateIn(scope, a.typed("started", SharingStarted.Eagerly), a["initialValue"])
+            flow.stateIn(scope, a.typed("started", SharingStarted.Eagerly), a["initialValue"])
         }
     }
     suspendMember<Flow<*>>("collectLatest(action)") { flow, a ->

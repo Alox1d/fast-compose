@@ -299,6 +299,33 @@ class MultiFileTest {
     }
 
     @Test
+    fun libraryDeclarationsFromSources() = runTest {
+        val library = SourceFile(
+            "nemo-sources.jar!/io/nemo/model/EditorTheme.kt",
+            "package io.nemo.model\n\ndata class EditorTheme(val background: Int = 0, val dark: Boolean = false)",
+        )
+        val sources = object : SourceProvider {
+            override suspend fun find(packageName: String, name: String): SourceFile? = null
+            override suspend fun isProjectPackage(packageName: String) = packageName.startsWith("app")
+            override suspend fun findLibrary(packageName: String, name: String) =
+                library.takeIf { packageName == "io.nemo.model" && name == "EditorTheme" }
+        }
+        val main = program(
+            """
+            package app
+
+            import io.nemo.model.EditorTheme
+            import io.nemo.ui.NemoCodeEditor
+
+            fun test() = EditorTheme(background = 3).copy(dark = true).toString()
+            """,
+        )
+        val loaded = SourceLoader(sources).load(main)
+        assertEquals(emptyList(), loaded.missing)
+        assertEquals("EditorTheme(background=3, dark=true)", Interpreter(main, Registry(), dependencies = loaded.dependencies).call("test"))
+    }
+
+    @Test
     fun actualFunctionsUseTheDefaultsOfTheirExpect() = runTest {
         val expect = SourceFile(
             "common/Back.kt",

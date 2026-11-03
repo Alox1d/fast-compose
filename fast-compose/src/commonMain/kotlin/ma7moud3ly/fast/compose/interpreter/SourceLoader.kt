@@ -20,8 +20,8 @@ public fun interface SourceProvider {
 
     /**
      * True if [packageName] belongs to the project, false for library packages. Names imported from library packages
-     * are never looked up and never reported as missing: they come from bindings. By default every package counts as
-     * the project's, except [SourceLoader.DEFAULT_LIBRARY_PACKAGES].
+     * are never looked up with [find] and never reported as missing: they come from bindings, or from [findLibrary].
+     * By default every package counts as the project's, except [SourceLoader.DEFAULT_LIBRARY_PACKAGES].
      */
     public suspend fun isProjectPackage(packageName: String): Boolean = true
 
@@ -31,6 +31,14 @@ public fun interface SourceProvider {
      * it.
      */
     public suspend fun findExpect(packageName: String, name: String): SourceFile? = null
+
+    /**
+     * The file declaring [name] in library package [packageName], e.g. from the library's sources jar, or null.
+     * Only for libraries without bindings (not [SourceLoader.DEFAULT_LIBRARY_PACKAGES]); a missing one is not
+     * reported and runs as a stand-in. Hosts should serve data declarations (classes, objects, values) rather than
+     * functions that need the library at runtime.
+     */
+    public suspend fun findLibrary(packageName: String, name: String): SourceFile? = null
 }
 
 /** A name imported from a project package that no file declares; [file] is the path of the file that imports it. */
@@ -114,11 +122,13 @@ public class SourceLoader(
                     val key = candidate.packageName to candidate.name
                     val file = if (key in lookups) {
                         lookups[key]
+                    } else if (candidate.isLibrary) {
+                        provider.findLibrary(candidate.packageName, candidate.name).also { lookups[key] = it }
                     } else {
                         provider.find(candidate.packageName, candidate.name).also { lookups[key] = it }
                     }
                     if (file == null || file.path == program.path) {
-                        if (candidate.isImport) missing += MissingReference(name, candidate.packageName, program.path)
+                        if (candidate.isImport && !candidate.isLibrary) missing += MissingReference(name, candidate.packageName, program.path)
                         continue
                     }
                     val dependency = if (file.path == main.path) main else found[file.path] ?: run {
@@ -141,15 +151,16 @@ public class SourceLoader(
         return (decl.externalNames() + decl.memberNames().filter { it in imported }).sorted()
     }
 
-    private class Candidate(val packageName: String, val name: String, val isImport: Boolean)
+    /** A place [name] may be declared; [isLibrary] for a library without bindings, looked up with `findLibrary`. */
+    private class Candidate(val packageName: String, val name: String, val isImport: Boolean, val isLibrary: Boolean = false)
 
     /** Where [name] may be declared, in Kotlin's lookup order; empty for names from library packages. */
     private suspend fun candidates(program: Program, name: String): List<Candidate> {
         val import = program.imports.firstOrNull { !it.isStar && it.visibleName == name }
         if (import != null) {
             val packageName = import.declarationPackage
-            if (isLibrary(packageName)) return emptyList()
-            return listOf(Candidate(packageName, import.declarationName, true))
+            if (isBound(packageName)) return emptyList()
+            return listOf(Candidate(packageName, import.declarationName, true, isLibrary = isLibrary(packageName)))
         }
         return buildList {
             add(Candidate(program.packageName, name, false))
@@ -159,8 +170,12 @@ public class SourceLoader(
         }
     }
 
+    /** True for packages whose APIs come from bindings, never from files: [libraryPackages]. */
+    private fun isBound(packageName: String): Boolean =
+        libraryPackages.any { packageName == it || packageName.startsWith("$it.") }
+
     private suspend fun isLibrary(packageName: String): Boolean {
-        if (libraryPackages.any { packageName == it || packageName.startsWith("$it.") }) return true
+        if (isBound(packageName)) return true
         val isProject = projectPackages[packageName]
             ?: provider.isProjectPackage(packageName).also { projectPackages[packageName] = it }
         return !isProject
