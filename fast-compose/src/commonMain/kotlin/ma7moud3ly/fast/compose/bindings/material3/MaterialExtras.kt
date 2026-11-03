@@ -2,6 +2,7 @@
 
 package ma7moud3ly.fast.compose.bindings.material3
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material3.DrawerState
 import androidx.compose.material3.DrawerValue
@@ -10,6 +11,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.LocalTextStyle
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -27,6 +29,10 @@ import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberDrawerState
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.DpOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.PopupProperties
 import ma7moud3ly.fast.compose.bindings.foundation.TEXT_SIGNATURE
 import ma7moud3ly.fast.compose.bindings.foundation.textStyle
 import ma7moud3ly.fast.compose.interpreter.ErrorBox
@@ -43,12 +49,19 @@ internal fun Registry.materialExtras() {
 }
 
 private fun Registry.menus() {
-    composable("DropdownMenu(expanded, onDismissRequest, modifier, content)") { a ->
+    composable("DropdownMenu(expanded, onDismissRequest, modifier, offset, properties, shape, containerColor, tonalElevation, shadowElevation, border, content)") { a ->
         val content = a.scopedContent<ColumnScope>()
         DropdownMenu(
             expanded = a.boolean("expanded", false),
             onDismissRequest = a.action("onDismissRequest"),
             modifier = a.modifier(),
+            offset = a.typed("offset", DpOffset(0.dp, 0.dp)),
+            properties = a.typed("properties", PopupProperties(focusable = true)),
+            shape = a.typed<Shape>("shape", MenuDefaults.shape),
+            containerColor = a.color("containerColor", MenuDefaults.containerColor),
+            tonalElevation = a.dp("tonalElevation", MenuDefaults.TonalElevation),
+            shadowElevation = a.dp("shadowElevation", MenuDefaults.ShadowElevation),
+            border = a.typedOrNull<BorderStroke>("border"),
         ) { content() }
     }
     composable("DropdownMenuItem(text, onClick, modifier, leadingIcon, trailingIcon, enabled)") { a ->

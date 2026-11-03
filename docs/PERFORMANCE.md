@@ -111,8 +111,10 @@ Interpreted code runs on the UI thread, like compiled Compose code. To keep a ho
 stops code that runs for more than 2 seconds without a pause:
 
 - Evaluation steps are counted, and the clock is read every 4,096 steps, so the check costs almost nothing.
-- A gap of more than 50 ms between two readings means the thread was free, e.g. between frames or during `delay`, and
-  starts a new 2 seconds.
+- Each entry into interpreted code starts a new 2 seconds: a composition, a draw or layout callback, an event handler,
+  or a coroutine resuming after a suspend call that waited (`delay`, `withFrameNanos`). So a continuous animation that
+  runs code every frame is never stopped; only one entry that runs too long is. A gap of more than 50 ms between two
+  readings also starts a new 2 seconds.
 - In plain code, such as an event handler, the code stops with an error. In composition, an error box is shown and
   the current frame ends early.
 - The limit is the `maxRunTime` parameter of `Interpreter`; `Duration.INFINITE` turns it off. The benchmark turns it

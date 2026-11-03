@@ -160,7 +160,10 @@ public class ComposeCode internal constructor(
             }
             if (loader == null) return@collectLatest accept(newProgram, emptyList(), emptyList())
             val loaded = withContext(Dispatchers.Default) { loader.load(newProgram) }
-            val problems = loaded.missing.map { LogLine(it, isWarning = true) } +
+            // Names missing in other files are listed under their file, not the previewed one.
+            val problems = loaded.missing.map {
+                LogLine(it.toString(), isWarning = true, file = it.file.takeIf { file -> file != path })
+            } +
                 loaded.diagnostics.flatMap { (file, fileErrors) ->
                     fileErrors.map { LogLine("${file.substringAfterLast('/')}:${it.span.line}: ${it.message}", isError = true, line = it.span.line, file = file) }
                 }

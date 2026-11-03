@@ -11,6 +11,12 @@ import kotlin.math.floor
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.tan
+import kotlin.math.atan2
+import kotlin.math.round
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.log10
 import kotlin.math.sqrt
 
 /** Subset of the Kotlin standard library. Every function returns [Unresolved] for names or receivers it does not support. */
@@ -49,7 +55,7 @@ internal class Builtins(private val interpreter: Interpreter) {
     fun global(name: String, args: CallArgs): Any? {
         val a = args.positional
         return when (name) {
-            "listOf", "arrayOf", "floatArrayOf", "intArrayOf" -> a
+            "listOf", "arrayOf", "floatArrayOf", "intArrayOf", "longArrayOf", "doubleArrayOf", "booleanArrayOf", "charArrayOf" -> a
             "mutableListOf", "arrayListOf" -> a.toMutableList()
             "emptyList", "emptyArray" -> emptyList<Any?>()
             "listOfNotNull" -> a.filterNotNull()
@@ -57,6 +63,8 @@ internal class Builtins(private val interpreter: Interpreter) {
             "mutableSetOf" -> a.toMutableSet()
             "emptySet" -> emptySet<Any?>()
             "mapOf" -> a.associate { pairOf(it) }
+            "sortedMapOf" -> sortedByKey(a.map { pairOf(it) }, null)
+            "sortedSetOf" -> a.sortedWith(comparator(null)).toCollection(LinkedHashSet())
             "mutableMapOf" -> a.associate { pairOf(it) }.toMutableMap()
             "emptyMap" -> emptyMap<Any?, Any?>()
             "Pair" -> Pair(a[0], a[1])
@@ -72,6 +80,16 @@ internal class Builtins(private val interpreter: Interpreter) {
             "sqrt" -> (a[0] as? Float)?.let { sqrt(it) } ?: sqrt(double(a[0]))
             "sin" -> (a[0] as? Float)?.let { sin(it) } ?: sin(double(a[0]))
             "cos" -> (a[0] as? Float)?.let { cos(it) } ?: cos(double(a[0]))
+            "tan" -> (a[0] as? Float)?.let { tan(it) } ?: tan(double(a[0]))
+            "atan2" -> atan2(double(a[0]), double(a[1]))
+            "round" -> (a[0] as? Float)?.let { round(it) } ?: round(double(a[0]))
+            "exp" -> exp(double(a[0]))
+            "ln" -> ln(double(a[0]))
+            "log10" -> log10(double(a[0]))
+            "IntArray", "LongArray", "FloatArray", "DoubleArray", "BooleanArray" -> {
+                val fn = args.trailing ?: args.positional.getOrNull(1)
+                MutableList(int(a[0])) { if (fn != null) call(fn, it) else emptyArrayValue(name) }
+            }
             "floor" -> floor(double(a[0]))
             "ceil" -> ceil(double(a[0]))
             "require" -> if (a[0] == true) Unit else throw IllegalArgumentException(
@@ -114,6 +132,29 @@ internal class Builtins(private val interpreter: Interpreter) {
 
             else -> if (isExceptionType(name)) exception(name, args) else Unresolved
         }
+    }
+
+    /** Initial element of a primitive array such as `IntArray(3)`: `0`, `0L`, `0f`, `0.0` or `false`. */
+    private fun emptyArrayValue(type: String): Any = when (type) {
+        "LongArray" -> 0L
+        "FloatArray" -> 0f
+        "DoubleArray" -> 0.0
+        "BooleanArray" -> false
+        else -> 0
+    }
+
+    /** A Kotlin [Comparator] passed to a sorting function, or the natural order of interpreted values. */
+    @Suppress("UNCHECKED_CAST")
+    private fun comparator(value: Any?): Comparator<Any?> =
+        value as? Comparator<Any?> ?: Comparator { x, y -> Operators.compare(x, y) as Int }
+
+    /**
+     * A map of [pairs] in the order of their keys, for `toSortedMap()` and `sortedMapOf()`; later puts keep insertion
+     * order instead of sorting, which previews don't rely on.
+     */
+    private fun sortedByKey(pairs: List<Pair<Any?, Any?>>, comparator: Any?): MutableMap<Any?, Any?> {
+        val order = comparator(comparator)
+        return pairs.sortedWith { x, y -> order.compare(x.first, y.first) }.toMap(LinkedHashMap())
     }
 
     /** Message from the lambda of `require(value) { "message" }`, or [default]. */
@@ -240,6 +281,24 @@ internal class Builtins(private val interpreter: Interpreter) {
             "takeIf" -> return if (predicate(args.fn(), receiver)) receiver else null
             "takeUnless" -> return if (predicate(args.fn(), receiver)) null else receiver
             "compareTo" -> return Operators.compare(receiver, a.firstOrNull())
+            // Extensions on nullable receivers. A null value has no type here, so `orEmpty()` on null gives an empty
+            // String, the most common case.
+            "isNullOrEmpty" -> when (receiver) {
+                null -> return true
+                is CharSequence -> return receiver.isEmpty()
+                is Collection<*> -> return receiver.isEmpty()
+                is Map<*, *> -> return receiver.isEmpty()
+            }
+
+            "isNullOrBlank" -> when (receiver) {
+                null -> return true
+                is CharSequence -> return receiver.isBlank()
+            }
+
+            "orEmpty" -> when (receiver) {
+                null -> return ""
+                is CharSequence, is Collection<*>, is Map<*, *> -> return receiver
+            }
         }
         return when (receiver) {
             is String -> string(receiver, name, args)
@@ -299,6 +358,21 @@ internal class Builtins(private val interpreter: Interpreter) {
             "endsWith" -> s.endsWith(str(a[0]))
             "contains" -> (a[0] as? Char)?.let { it in s } ?: s.contains(str(a[0]))
             "indexOf" -> (a[0] as? Char)?.let { s.indexOf(it) } ?: s.indexOf(str(a[0]))
+            "lastIndexOf" -> s.lastIndexOf(str(a[0]), a.getOrNull(1)?.let { int(it) } ?: s.lastIndex)
+            // The delimiter may be a Char or a String; the second argument is the result when it is missing.
+            "substringBefore" -> s.substringBefore(str(a[0]), a.getOrNull(1)?.let { str(it) } ?: s)
+            "substringAfter" -> s.substringAfter(str(a[0]), a.getOrNull(1)?.let { str(it) } ?: s)
+            "substringBeforeLast" -> s.substringBeforeLast(str(a[0]), a.getOrNull(1)?.let { str(it) } ?: s)
+            "substringAfterLast" -> s.substringAfterLast(str(a[0]), a.getOrNull(1)?.let { str(it) } ?: s)
+            "removePrefix" -> s.removePrefix(str(a[0]))
+            "removeSuffix" -> s.removeSuffix(str(a[0]))
+            "removeSurrounding" -> if (a.size >= 2) {
+                s.removeSurrounding(str(a[0]), str(a[1]))
+            } else {
+                s.removeSurrounding(str(a[0]))
+            }
+            "trimStart" -> s.trimStart()
+            "trimEnd" -> s.trimEnd()
             "substring" -> if (a.size > 1) s.substring(
                 int(a[0]),
                 int(a[1])
@@ -507,6 +581,7 @@ internal class Builtins(private val interpreter: Interpreter) {
             "toList" -> list.toList()
             "toMutableList" -> list.toMutableList()
             "toSet" -> list.toSet()
+            "toSortedSet" -> list.sortedWith(comparator(a.firstOrNull())).toCollection(LinkedHashSet())
             "toMutableSet" -> list.toMutableSet()
             "ifEmpty" -> if (list.isEmpty()) call(fn) else items
             "add" -> (items as? MutableCollection<Any?>)?.let {
@@ -520,12 +595,12 @@ internal class Builtins(private val interpreter: Interpreter) {
                 ?: Unresolved
 
             "remove" -> (items as? MutableCollection<Any?>)?.remove(a[0]) ?: Unresolved
-            "removeAt" -> (items as? MutableList<Any?>)?.removeAt(int(a[0])) ?: Unresolved
+            "removeAt" -> if (items is MutableList<*>) (items as MutableList<Any?>).removeAt(int(a[0])) else Unresolved
             "removeAll" -> (items as? MutableCollection<Any?>)?.removeAll { predicate(fn, it) }
                 ?: Unresolved
 
             "clear" -> (items as? MutableCollection<Any?>)?.clear() ?: Unresolved
-            "set" -> (items as? MutableList<Any?>)?.set(int(a[0]), a[1]) ?: Unresolved
+            "set" -> if (items is MutableList<*>) (items as MutableList<Any?>).set(int(a[0]), a[1]) else Unresolved
             else -> Unresolved
         }
     }
@@ -550,10 +625,16 @@ internal class Builtins(private val interpreter: Interpreter) {
             "plus" -> m + pairOf(a[0])
             "minus" -> m - a[0]
             "toMutableMap" -> m.toMutableMap()
-            "put" -> (m as? MutableMap<Any?, Any?>)?.put(a[0], a[1]) ?: Unresolved
-            "remove" -> (m as? MutableMap<Any?, Any?>)?.remove(a[0]) ?: Unresolved
+            "toSortedMap" -> sortedByKey(m.entries.map { it.key to it.value }, a.firstOrNull())
+            // `put` and `remove` return the previous value, often null, so only a read-only map is unresolved.
+            "put" -> if (m is MutableMap<*, *>) (m as MutableMap<Any?, Any?>).put(a[0], a[1]) else Unresolved
+            "remove" -> if (m is MutableMap<*, *>) (m as MutableMap<Any?, Any?>).remove(a[0]) else Unresolved
             "clear" -> (m as? MutableMap<Any?, Any?>)?.clear() ?: Unresolved
-            "getOrPut" -> (m as? MutableMap<Any?, Any?>)?.getOrPut(a[0]) { call(fn) } ?: Unresolved
+            "getOrPut" -> if (m is MutableMap<*, *>) {
+                (m as MutableMap<Any?, Any?>).getOrPut(a[0]) { call(fn) }
+            } else {
+                Unresolved
+            }
             else -> Unresolved
         }
     }

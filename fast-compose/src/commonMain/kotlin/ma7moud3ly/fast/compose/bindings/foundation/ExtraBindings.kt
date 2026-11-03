@@ -52,7 +52,26 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerButtons
+import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerInputChange
+import androidx.compose.ui.input.pointer.PointerKeyboardModifiers
+import androidx.compose.ui.input.pointer.areAnyPressed
+import androidx.compose.ui.input.pointer.changedToDown
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.isAltPressed
+import androidx.compose.ui.input.pointer.isCtrlPressed
+import androidx.compose.ui.input.pointer.isMetaPressed
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -72,7 +91,9 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextDirection
 import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 
 /** CompositionLocal, styled text, gestures, BoxWithConstraints and animated content. */
 internal fun Registry.extras() {
@@ -95,13 +116,22 @@ private fun Registry.compositionLocals() {
         val default = a.calculation("defaultFactory")
         staticCompositionLocalOf { default() }
     }
-    member<ProvidableCompositionLocal<*>>("provides(value)") { local, a -> (local as ProvidableCompositionLocal<Any?>) provides a["value"] }
+    // Compose casts a provided value to the local's type, so a stand-in is not provided: the local keeps its value.
+    member<ProvidableCompositionLocal<*>>("provides(value)") { local, a ->
+        if (a.isStandIn("value")) a["value"] else (local as ProvidableCompositionLocal<Any?>) provides a["value"]
+    }
     composableMember<CompositionLocal<*>>("current") { local, _ -> local.current }
     composable("CompositionLocalProvider(vararg values, content)") { a ->
         ProvideLocals(a.varargs("values").filterIsInstance<ProvidedValue<*>>(), a.content())
     }
     value("LocalDensity", LocalDensity)
+    type<Density>("Density")
+    function("Density(density, fontScale)") { a -> Density(a.float("density", 1f), a.float("fontScale", 1f)) }
+    properties<Density>("density" to { it.density }, "fontScale" to { it.fontScale })
     value("LocalLayoutDirection", LocalLayoutDirection)
+    type<LayoutDirection>("LayoutDirection")
+    value("LayoutDirection", LayoutDirections)
+    constants<LayoutDirections>("Ltr" to LayoutDirection.Ltr, "Rtl" to LayoutDirection.Rtl)
 }
 
 /** Calls `CompositionLocalProvider` from a named function, like `Keyed`, to keep the vararg spread out of registry lambdas. */
@@ -172,8 +202,77 @@ private fun Registry.annotatedStrings() {
     }
 }
 
+/** `awaitEachGesture`, `awaitPointerEvent`, `awaitFirstDown` and the events they give, for custom gestures. */
+private fun Registry.pointerEvents() {
+    suspendMember<PointerInputScope>("awaitEachGesture(block)") { scope, a ->
+        scope.awaitEachGesture(a.suspendBlock<AwaitPointerEventScope>("block"))
+        Unit
+    }
+    suspendMember<PointerInputScope>("awaitPointerEventScope(block)") { scope, a ->
+        scope.awaitPointerEventScope(a.suspendCalculation<AwaitPointerEventScope>("block"))
+    }
+    type<AwaitPointerEventScope>("AwaitPointerEventScope")
+    suspendMember<AwaitPointerEventScope>("awaitPointerEvent(pass)") { scope, a ->
+        awaitEvent(scope, a.typed("pass", PointerEventPass.Main))
+    }
+    suspendMember<AwaitPointerEventScope>("awaitFirstDown(requireUnconsumed, pass)") { scope, a ->
+        awaitDown(scope, a.boolean("requireUnconsumed", true), a.typed("pass", PointerEventPass.Main))
+    }
+    properties<AwaitPointerEventScope>("size" to { it.size }, "currentEvent" to { it.currentEvent })
+    type<PointerEvent>("PointerEvent")
+    properties<PointerEvent>(
+        "type" to { it.type },
+        "changes" to { it.changes },
+        "buttons" to { it.buttons },
+        "keyboardModifiers" to { it.keyboardModifiers },
+    )
+    properties<PointerButtons>(
+        "isPrimaryPressed" to { it.isPrimaryPressed },
+        "isSecondaryPressed" to { it.isSecondaryPressed },
+        "isTertiaryPressed" to { it.isTertiaryPressed },
+        "areAnyPressed" to { it.areAnyPressed },
+    )
+    properties<PointerKeyboardModifiers>(
+        "isCtrlPressed" to { it.isCtrlPressed },
+        "isMetaPressed" to { it.isMetaPressed },
+        "isShiftPressed" to { it.isShiftPressed },
+        "isAltPressed" to { it.isAltPressed },
+    )
+    value("PointerEventType", PointerEventType.Companion)
+    constants<PointerEventType.Companion>(
+        "Press" to PointerEventType.Press, "Release" to PointerEventType.Release, "Move" to PointerEventType.Move,
+        "Enter" to PointerEventType.Enter, "Exit" to PointerEventType.Exit, "Scroll" to PointerEventType.Scroll,
+        "Unknown" to PointerEventType.Unknown,
+    )
+    value("PointerEventPass", PointerEventPasses)
+    constants<PointerEventPasses>(
+        "Initial" to PointerEventPass.Initial, "Main" to PointerEventPass.Main, "Final" to PointerEventPass.Final,
+    )
+}
+
+/*
+ * AwaitPointerEventScope restricts suspension: its functions can be called only from lambdas on that scope. Bindings
+ * run in the interpreter's own suspend functions, so they call them through these lambdas, typed as plain functions.
+ * At runtime the calls still happen inside the gesture's coroutine, as the interpreted code is.
+ */
+private val restrictedAwaitEvent: suspend AwaitPointerEventScope.(PointerEventPass) -> PointerEvent = { awaitPointerEvent(it) }
+private val restrictedAwaitDown: suspend AwaitPointerEventScope.(Boolean, PointerEventPass) -> PointerInputChange =
+    { requireUnconsumed, pass -> awaitFirstDown(requireUnconsumed, pass) }
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+private val awaitEvent = restrictedAwaitEvent as suspend (AwaitPointerEventScope, PointerEventPass) -> PointerEvent
+
+@Suppress("UNCHECKED_CAST", "USELESS_CAST")
+private val awaitDown = restrictedAwaitDown as suspend (AwaitPointerEventScope, Boolean, PointerEventPass) -> PointerInputChange
+
+/** Marker for `PointerEventPass.Initial`, `Main` and `Final` (an enum without a companion). */
+private object PointerEventPasses
+
 /** Marker for `Orientation.Horizontal` and `Orientation.Vertical` (an enum without a companion). */
 private object Orientations
+
+/** Marker for `LayoutDirection.Ltr` and `LayoutDirection.Rtl` (an enum without a companion). */
+private object LayoutDirections
 
 private fun Registry.gestures() {
     type<PointerInputScope>("PointerInputScope")
@@ -217,8 +316,21 @@ private fun Registry.gestures() {
         )
         Unit
     }
-    properties<PointerInputChange>("position" to { it.position }, "pressed" to { it.pressed })
+    properties<PointerInputChange>(
+        "position" to { it.position },
+        "pressed" to { it.pressed },
+        "previousPosition" to { it.previousPosition },
+        "previousPressed" to { it.previousPressed },
+        "uptimeMillis" to { it.uptimeMillis },
+        "isConsumed" to { it.isConsumed },
+        "id" to { it.id },
+        "type" to { it.type },
+    )
     member<PointerInputChange>("consume") { change, _ -> change.consume() }
+    member<PointerInputChange>("positionChange()") { change, _ -> change.positionChange() }
+    member<PointerInputChange>("changedToDown()") { change, _ -> change.changedToDown() }
+    member<PointerInputChange>("changedToUp()") { change, _ -> change.changedToUp() }
+    pointerEvents()
 
     value("Orientation", Orientations)
     constants<Orientations>(

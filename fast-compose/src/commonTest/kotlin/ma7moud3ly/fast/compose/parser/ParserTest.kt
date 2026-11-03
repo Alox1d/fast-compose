@@ -168,6 +168,100 @@ class ParserTest {
     }
 
     @Test
+    fun accessorsWithAnnotationsAndModifiers() {
+        val program = parse(
+            """
+            class Store {
+                var count by mutableStateOf(0)
+                    private set
+                val label: String
+                    @Composable get() = "x"
+                var name: String = ""
+                    @Suppress("unused") internal set(value) {
+                        field = value
+                    }
+                fun after() = 1
+            }
+
+            val font: Int
+                @Composable
+                get() = 1
+
+            fun next() = 2
+            """.trimIndent(),
+        )
+        val store = assertIs<ClassDecl>(program.declarations[0])
+        val names = store.members.map { (it as? PropertyDecl)?.name ?: (it as FunDecl).name }
+        assertEquals(listOf("count", "label", "name", "after"), names)
+        assertTrue(assertIs<PropertyDecl>(store.members[1]).getter != null)
+        assertTrue(assertIs<PropertyDecl>(program.declarations[1]).getter != null)
+        assertEquals("next", assertIs<FunDecl>(program.declarations[2]).name)
+    }
+
+    @Test
+    fun whenGuardsAndSubjectName() {
+        val whenExpr = assertIs<WhenExpr>(
+            initializer(
+                """
+                val label = when (val n: Int = x) {
+                    0 -> "zero"
+                    in 1..9 if n % 2 == 0 -> "small even"
+                    is Int if n > 100 -> "big"
+                    else if n < 0 -> "negative"
+                    else -> "other"
+                }
+                """.trimIndent(),
+            ),
+        )
+        assertEquals("n", whenExpr.subjectName)
+        assertNull(whenExpr.branches[0].guard)
+        assertIs<Binary>(whenExpr.branches[1].guard)
+        assertIs<WhenCondition.Is>(whenExpr.branches[2].conditions.single())
+        assertTrue(whenExpr.branches[3].conditions.isEmpty())
+        assertIs<Binary>(whenExpr.branches[3].guard)
+        assertNull(whenExpr.branches[4].guard)
+    }
+
+    @Test
+    fun whenSubjectNameIsDeclared() {
+        val program = parse(
+            """
+            fun f(x: Int) = when (val y = x) {
+                1 -> y
+                else -> 0
+            }
+            """.trimIndent(),
+        )
+        assertEquals(setOf("Int"), program.externalNames())
+    }
+
+    @Test
+    fun importTargets() {
+        val member = Import("androidx.compose.ui.tooling.preview.Devices.DESKTOP")
+        assertEquals("androidx.compose.ui.tooling.preview", member.declarationPackage)
+        assertEquals("Devices", member.declarationName)
+        assertEquals(listOf("DESKTOP"), member.memberPath)
+
+        val function = Import("app.ui.label")
+        assertEquals("app.ui", function.declarationPackage)
+        assertEquals("label", function.declarationName)
+        assertTrue(function.memberPath.isEmpty())
+
+        val type = Import("app.model.User")
+        assertEquals("app.model", type.declarationPackage)
+        assertEquals("User", type.declarationName)
+        assertTrue(type.memberPath.isEmpty())
+    }
+
+    @Test
+    fun hasPreviews() {
+        assertTrue(KotlinParser.hasPreviews("@Preview\n@Composable\nfun A() {}"))
+        assertTrue(KotlinParser.hasPreviews("@androidx.compose.ui.tooling.preview.Preview @Composable fun A() {}"))
+        assertTrue(!KotlinParser.hasPreviews("// @Preview\nval text = \"@Preview\""))
+        assertTrue(!KotlinParser.hasPreviews("import androidx.compose.ui.tooling.preview.Preview\nfun A() {}"))
+    }
+
+    @Test
     fun lambdaParameters() {
         val forEach = assertIs<Call>(expr("items.forEach { item -> Text(item) }"))
         assertEquals(listOf("item"), forEach.trailingLambda!!.params)
@@ -214,6 +308,23 @@ class ParserTest {
         val cls = assertIs<ClassDecl>(parse("enum class Screen { Home, Settings }").declarations.single())
         assertEquals(ClassKind.ENUM, cls.kind)
         assertEquals(listOf("Home", "Settings"), cls.enumEntries.map { it.name })
+    }
+
+    @Test
+    fun annotatedEnumEntries() {
+        val code = """
+            enum class Status(val label: String) {
+                @SerialName("available") Available("A"),
+                @SerialName("busy")
+                Busy("B");
+
+                @Deprecated("old")
+                fun short() = label
+            }
+        """.trimIndent()
+        val cls = assertIs<ClassDecl>(parse(code).declarations.single())
+        assertEquals(listOf("Available", "Busy"), cls.enumEntries.map { it.name })
+        assertEquals(listOf("short"), cls.members.filterIsInstance<FunDecl>().map { it.name })
     }
 
     @Test

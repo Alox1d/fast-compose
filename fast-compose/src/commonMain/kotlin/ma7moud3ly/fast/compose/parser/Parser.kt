@@ -128,6 +128,11 @@ public class Parser(private val tokens: List<Token>) {
         val saved = pos
         val modifiers = parseModifiers()
         return when {
+            // `object : Type { … }` and `object { … }` are expressions, not declarations.
+            at(OBJECT) && "companion" !in modifiers.words && peekAfter().type in setOf(COLON, LBRACE) -> {
+                pos = saved
+                null
+            }
             at(FUN) -> parseFunction(start, modifiers)
             at(VAL) || at(VAR) -> parseProperty(start).copy(isPrivate = "private" in modifiers.words)
             at(CLASS) || at(OBJECT) || isSoft("interface") -> parseClass(start, modifiers)
@@ -155,6 +160,8 @@ public class Parser(private val tokens: List<Token>) {
             id(), spanFrom(start), name, modifiers.annotations, receiver, params, returnType, body,
             isSuspend = "suspend" in modifiers.words,
             isPrivate = "private" in modifiers.words,
+            isExpect = "expect" in modifiers.words,
+            isActual = "actual" in modifiers.words,
         )
     }
 
@@ -184,17 +191,22 @@ public class Parser(private val tokens: List<Token>) {
         return PropertyDecl(id(), spanFrom(start), name, isVar, type, initializer, delegate, receiver, getter)
     }
 
-    /** Parses optional `get()` / `set(value)` accessors; returns the getter body. Setters are parsed and dropped. */
+    /**
+     * Parses optional `get()` / `set(value)` accessors, which may start with annotations and modifiers, e.g.
+     * `@Composable get() = …` or `private set`. Returns the getter body; setters and accessors without a body are
+     * parsed and dropped.
+     */
     private fun parseAccessors(): Block? {
         var getter: Block? = null
         while (true) {
-            val i = indexOfNextNonNewline()
-            val word = tokens[i]
-            if (word.type != IDENTIFIER || (word.text != "get" && word.text != "set") || tokens[i + 1].type != LPAREN) return getter
-            val afterParens = tokens.drop(i + 2).indexOfFirst { it.type == RPAREN }.let { if (it < 0) return getter else i + 3 + it }
-            if (tokens[afterParens].type !in setOf(ASSIGN, LBRACE, COLON)) return getter
+            val word = accessorAt(indexOfNextNonNewline()) ?: return getter
             skipNewlines()
+            while (pos < word) {
+                if (tokens[pos].type == AT) parseAnnotation() else advance()
+                skipNewlines()
+            }
             val isGetter = advance().text == "get"
+            if (tokens[pos].type != LPAREN) continue
             parseParams()
             if (match(COLON)) parseType()
             val body = if (match(ASSIGN)) expressionBody() else parseBlock()
@@ -202,23 +214,78 @@ public class Parser(private val tokens: List<Token>) {
         }
     }
 
+    /**
+     * Index of the `get` or `set` of an accessor starting at [start], after its annotations and modifiers, or null if
+     * no accessor starts there. An accessor without parameters, such as `private set`, needs an annotation or a
+     * modifier, so a plain `get` or `set` on the next line stays an expression.
+     */
+    private fun accessorAt(start: Int): Int? {
+        var i = start
+        while (true) {
+            val t = tokens[i]
+            i = when {
+                t.type == NEWLINE -> i + 1
+                t.type == AT -> annotationEnd(i) ?: return null
+                t.type == IDENTIFIER && t.text in accessorModifiers -> i + 1
+                else -> break
+            }
+        }
+        val word = tokens[i]
+        if (word.type != IDENTIFIER || (word.text != "get" && word.text != "set")) return null
+        val next = tokens[i + 1]
+        if (next.type == LPAREN) {
+            val afterParens = parensEnd(i + 1) ?: return null
+            return if (tokens[afterParens].type in setOf(ASSIGN, LBRACE, COLON)) i else null
+        }
+        val hasPrefix = (start until i).any { tokens[it].type != NEWLINE }
+        return if (hasPrefix && next.type in setOf(NEWLINE, SEMICOLON, RBRACE, EOF)) i else null
+    }
+
+    /** Index right after the annotation starting with the `@` at [at], or null if none starts there. */
+    private fun annotationEnd(at: Int): Int? {
+        var i = at + 1
+        if (tokens[i].type == IDENTIFIER && tokens[i + 1].type == COLON) i += 2 // use-site target
+        if (tokens[i].type != IDENTIFIER) return null
+        i++
+        while (tokens[i].type == DOT && tokens[i + 1].type == IDENTIFIER) i += 2
+        if (tokens[i].type == LPAREN && tokens[i].start == tokens[i - 1].end) return parensEnd(i)
+        return i
+    }
+
+    /** Index right after the `)` that closes the `(` at [open], or null if it is never closed. */
+    private fun parensEnd(open: Int): Int? {
+        var depth = 0
+        for (i in open until tokens.size) {
+            when (tokens[i].type) {
+                LPAREN -> depth++
+                RPAREN -> if (--depth == 0) return i + 1
+                EOF -> return null
+                else -> Unit
+            }
+        }
+        return null
+    }
+
     /** Parses `Name` or `Receiver.Name` (receiver may have type arguments or `?`). */
     private fun parseReceiverAndName(): Pair<TypeRef?, String> {
         val from = pos
         var name = expect(IDENTIFIER, "a name")
         var receiverEnd = -1
+        var nullable = false
         while (true) {
             if (at(LT)) skipTypeArguments()
             if (at(QUESTION) && peekAfter().type == DOT) advance()
-            if (at(DOT) && peekAfter().type == IDENTIFIER) {
+            // `Type?.name`: the lexer reads `?.` as one token.
+            if ((at(DOT) || at(SAFE_DOT)) && peekAfter().type == IDENTIFIER) {
                 receiverEnd = pos
+                nullable = at(SAFE_DOT)
                 advance()
                 name = advance()
             } else {
                 break
             }
         }
-        val receiver = if (receiverEnd >= 0) TypeRef(textOf(from, receiverEnd)) else null
+        val receiver = if (receiverEnd >= 0) TypeRef(textOf(from, receiverEnd) + if (nullable) "?" else "") else null
         return receiver to name.value
     }
 
@@ -241,8 +308,10 @@ public class Parser(private val tokens: List<Token>) {
         return Param(name, type, default, isVararg)
     }
 
-    private fun parseClass(start: Token, modifiers: Modifiers): ClassDecl {
+    /** Parses a class, object or interface; with [anonymous], the class of an `object : … { … }` expression. */
+    private fun parseClass(start: Token, modifiers: Modifiers, anonymous: Boolean = false): ClassDecl {
         val kind = when {
+            anonymous -> ClassKind.CLASS
             at(OBJECT) -> ClassKind.OBJECT
             isSoft("interface") -> ClassKind.INTERFACE
             "enum" in modifiers.words -> ClassKind.ENUM
@@ -253,6 +322,7 @@ public class Parser(private val tokens: List<Token>) {
         val name = when {
             at(IDENTIFIER) -> advance().value
             "companion" in modifiers.words -> "Companion"
+            anonymous -> "object"
             else -> throw error("Expected a class name, found ${describe(cur())}")
         }
         skipTypeParameters()
@@ -325,7 +395,18 @@ public class Parser(private val tokens: List<Token>) {
         val entries = mutableListOf<EnumEntry>()
         try {
             skipSeparators()
-            while (at(IDENTIFIER) && peekAfter().type in setOf(COMMA, SEMICOLON, LPAREN, RBRACE, NEWLINE)) {
+            while (true) {
+                // An entry may have annotations, e.g. `@SerialName("busy") Busy`; if no entry follows, they belong to
+                // the next member and are left for it.
+                val beforeAnnotations = pos
+                while (at(AT)) {
+                    parseAnnotation()
+                    skipNewlines()
+                }
+                if (!at(IDENTIFIER) || peekAfter().type !in setOf(COMMA, SEMICOLON, LPAREN, RBRACE, NEWLINE)) {
+                    pos = beforeAnnotations
+                    break
+                }
                 val name = advance().value
                 val args = if (at(LPAREN)) parseCallArgs() else emptyList()
                 entries += EnumEntry(name, args)
@@ -770,7 +851,10 @@ public class Parser(private val tokens: List<Token>) {
                 advance()
                 ErrorExpr(id(), spanFrom(t))
             }
-            OBJECT -> throw error("Object expressions are not supported")
+            OBJECT -> {
+                val decl = parseClass(t, Modifiers(emptyList(), emptySet()), anonymous = true)
+                ObjectExpr(id(), spanFrom(t), decl)
+            }
             else -> throw error("Expected an expression, found ${describe(t)}")
         }
     }
@@ -864,38 +948,49 @@ public class Parser(private val tokens: List<Token>) {
         }
     }
 
-    /** Checks for `a, (b, c), d: Type ->` (or a bare `->`) at the start of a lambda. */
+    /** Checks for `a, (b, c: Type), d: Type ->` (or a bare `->`) at the start of a lambda. */
     private fun hasLambdaParams(): Boolean {
         var i = pos
         if (tokens[i].type == ARROW) return true
         while (true) {
             if (tokens[i].type == LPAREN) {
                 i++
-                while (tokens[i].type == IDENTIFIER || tokens[i].type == COMMA) i++
-                if (tokens[i].type != RPAREN) return false
+                while (tokens[i].type != RPAREN) {
+                    if (tokens[i].type != IDENTIFIER) return false
+                    i++
+                    if (tokens[i].type == COLON) i = typeEnd(i + 1) ?: return false
+                    if (tokens[i].type == COMMA) i++ else if (tokens[i].type != RPAREN) return false
+                }
             } else if (tokens[i].type != IDENTIFIER) {
                 return false
             }
             i++
-            if (tokens[i].type == COLON) {
-                var depth = 0
-                i++
-                while (true) {
-                    when (tokens[i].type) {
-                        LT, LPAREN -> depth++
-                        GT, RPAREN -> depth--
-                        COMMA, ARROW -> if (depth == 0) break
-                        NEWLINE, RBRACE, LBRACE, EOF, SEMICOLON -> return false
-                        else -> Unit
-                    }
-                    i++
-                }
-            }
+            if (tokens[i].type == COLON) i = typeEnd(i + 1) ?: return false
             when (tokens[i].type) {
                 COMMA -> i++
                 ARROW -> return true
                 else -> return false
             }
+        }
+    }
+
+    /**
+     * Index after a type that starts at [start] in a lambda parameter list: the `,`, `->` or closing `)` that ends it,
+     * outside its own brackets. Null when the tokens can't be a parameter type.
+     */
+    private fun typeEnd(start: Int): Int? {
+        var depth = 0
+        var i = start
+        while (true) {
+            when (tokens[i].type) {
+                LT, LPAREN -> depth++
+                GT -> depth--
+                RPAREN -> if (depth == 0) return i else depth--
+                COMMA, ARROW -> if (depth == 0) return i
+                NEWLINE, RBRACE, LBRACE, EOF, SEMICOLON -> return null
+                else -> Unit
+            }
+            i++
         }
     }
 
@@ -962,10 +1057,15 @@ public class Parser(private val tokens: List<Token>) {
 
     private fun parseWhen(): WhenExpr {
         val start = expect(WHEN, "'when'")
+        var subjectName: String? = null
         val subject = if (at(LPAREN)) {
             inParens {
                 advance()
-                if (at(VAL)) throw error("'val' in when subject is not supported")
+                if (match(VAL)) {
+                    subjectName = expect(IDENTIFIER, "a name").value
+                    if (match(COLON)) parseType()
+                    expect(ASSIGN, "'='")
+                }
                 val e = parseExpression()
                 expect(RPAREN, "')'")
                 e
@@ -988,8 +1088,9 @@ public class Parser(private val tokens: List<Token>) {
                             conditions += parseWhenCondition()
                         } while (match(COMMA))
                     }
+                    val guard = if (match(IF)) parseExpression() else null
                     expect(ARROW, "'->'")
-                    branches += WhenBranch(conditions, parseControlBody())
+                    branches += WhenBranch(conditions, parseControlBody(), guard)
                 } catch (_: ParseException) {
                     // Already reported as a diagnostic; parsing resumes at the next statement.
                     syncStatement()
@@ -997,7 +1098,7 @@ public class Parser(private val tokens: List<Token>) {
             }
             expect(RBRACE, "'}'")
         }
-        return WhenExpr(id(), spanFrom(start), subject, branches)
+        return WhenExpr(id(), spanFrom(start), subject, branches, subjectName)
     }
 
     private fun parseWhenCondition(): WhenCondition {
@@ -1159,6 +1260,8 @@ public class Parser(private val tokens: List<Token>) {
     }
 
     private companion object {
+        /** Modifiers that may come before a property accessor. */
+        val accessorModifiers = setOf("private", "public", "internal", "protected", "inline", "external")
         val modifierWords = setOf(
             "private", "public", "internal", "protected", "override", "open", "abstract", "sealed", "final",
             "inline", "noinline", "crossinline", "suspend", "operator", "infix", "const", "lateinit", "tailrec",
@@ -1173,6 +1276,27 @@ public class Parser(private val tokens: List<Token>) {
 
 /** Parses Kotlin source text into a [ParseResult]. */
 public object KotlinParser {
+    /**
+     * True if [source] has a `@Preview` annotation, written `@Preview` or qualified like
+     * `@androidx.compose.ui.tooling.preview.Preview`, without parsing it. Comments, strings and imports don't count.
+     * Cheap enough to call on every change, e.g. to decide whether a file is worth previewing.
+     */
+    public fun hasPreviews(source: String): Boolean {
+        val tokens = Lexer(source).tokenize()
+        for (i in tokens.indices) {
+            if (tokens[i].type != TokenType.AT) continue
+            var j = i + 1
+            var name: String? = null
+            while (j < tokens.size && tokens[j].type == TokenType.IDENTIFIER) {
+                name = tokens[j].text
+                if (tokens.getOrNull(j + 1)?.type != TokenType.DOT) break
+                j += 2
+            }
+            if (name == "Preview") return true
+        }
+        return false
+    }
+
     /** Parses [source]; [path] identifies the file in a project of several files and is kept in [Program.path]. */
     public fun parse(source: String, path: String? = null): ParseResult {
         val lexer = Lexer(source)

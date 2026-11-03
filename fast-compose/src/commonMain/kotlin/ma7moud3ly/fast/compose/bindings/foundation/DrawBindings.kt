@@ -67,7 +67,7 @@ private fun Registry.canvas() {
 /** Brush passed by name or as the first argument (`drawCircle(brush, …)`), else null for the color overload. */
 private fun Args.brush(first: String): Brush? = this["brush"] as? Brush ?: this[first] as? Brush
 
-private fun Args.style(): DrawStyle = typed("style", Fill)
+private fun Args.style(): DrawStyle = typed<DrawStyle>("style", Fill)
 
 private fun Args.colorFilter(): ColorFilter? = typedOrNull<ColorFilter>("colorFilter")
 
@@ -220,12 +220,13 @@ private fun Registry.geometry() {
     member<Path>("reset") { p, _ -> p.reset() }
 
     value("Fill", Fill)
-    function("Stroke(width, miter, cap, join)") { a ->
+    function("Stroke(width, miter, cap, join, pathEffect)") { a ->
         Stroke(
             width = a.float("width", 0f),
             miter = a.float("miter", Stroke.DefaultMiter),
             cap = a.typed("cap", Stroke.DefaultCap),
             join = a.typed<StrokeJoin>("join", Stroke.DefaultJoin),
+            pathEffect = a.typedOrNull<PathEffect>("pathEffect"),
         )
     }
     value("StrokeJoin", StrokeJoin.Companion)

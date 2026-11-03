@@ -54,6 +54,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.text.selection.TextSelectionColors
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AlertDialogDefaults
 import androidx.compose.material3.Badge
@@ -186,6 +188,7 @@ private fun Registry.material3() {
     tooltips()
     themes()
     componentExtras()
+    materialMore()
 }
 
 private fun Registry.icons3() {
@@ -370,13 +373,31 @@ private fun Registry.inputs() {
     composable("OutlinedTextField(value, onValueChange, modifier, enabled, readOnly, textStyle, label, placeholder, leadingIcon, trailingIcon, prefix, suffix, supportingText, isError, visualTransformation, keyboardOptions, keyboardActions, singleLine, maxLines, minLines, *, shape, colors)") { a -> MaterialTextField(a, outlined = true) }
     value("TextFieldDefaults", TextFieldDefaults)
     composableMember<TextFieldDefaults>(
-        "colors(focusedTextColor, unfocusedTextColor, focusedContainerColor, unfocusedContainerColor, cursorColor, " +
-            "focusedIndicatorColor, unfocusedIndicatorColor, focusedLabelColor, unfocusedLabelColor)",
+        "colors(focusedTextColor, unfocusedTextColor, disabledTextColor, errorTextColor, focusedContainerColor, " +
+            "unfocusedContainerColor, disabledContainerColor, errorContainerColor, cursorColor, " +
+            "errorCursorColor, selectionColors, focusedIndicatorColor, unfocusedIndicatorColor, " +
+            "disabledIndicatorColor, errorIndicatorColor, focusedLeadingIconColor, unfocusedLeadingIconColor, " +
+            "disabledLeadingIconColor, errorLeadingIconColor, focusedTrailingIconColor, " +
+            "unfocusedTrailingIconColor, disabledTrailingIconColor, errorTrailingIconColor, focusedLabelColor, " +
+            "unfocusedLabelColor, disabledLabelColor, errorLabelColor, focusedPlaceholderColor, " +
+            "unfocusedPlaceholderColor, disabledPlaceholderColor, errorPlaceholderColor, " +
+            "focusedSupportingTextColor, unfocusedSupportingTextColor, disabledSupportingTextColor, " +
+            "errorSupportingTextColor, focusedPrefixColor, unfocusedPrefixColor, disabledPrefixColor, " +
+            "errorPrefixColor, focusedSuffixColor, unfocusedSuffixColor, disabledSuffixColor, errorSuffixColor)",
     ) { _, a -> a.textFieldColors(TextFieldDefaults.colors()) }
     value("OutlinedTextFieldDefaults", OutlinedTextFieldDefaults)
     composableMember<OutlinedTextFieldDefaults>(
-        "colors(focusedTextColor, unfocusedTextColor, focusedContainerColor, unfocusedContainerColor, cursorColor, " +
-            "focusedBorderColor, unfocusedBorderColor, focusedLabelColor, unfocusedLabelColor)",
+        "colors(focusedTextColor, unfocusedTextColor, disabledTextColor, errorTextColor, focusedContainerColor, " +
+            "unfocusedContainerColor, disabledContainerColor, errorContainerColor, cursorColor, " +
+            "errorCursorColor, selectionColors, focusedBorderColor, unfocusedBorderColor, disabledBorderColor, " +
+            "errorBorderColor, focusedLeadingIconColor, unfocusedLeadingIconColor, disabledLeadingIconColor, " +
+            "errorLeadingIconColor, focusedTrailingIconColor, unfocusedTrailingIconColor, " +
+            "disabledTrailingIconColor, errorTrailingIconColor, focusedLabelColor, unfocusedLabelColor, " +
+            "disabledLabelColor, errorLabelColor, focusedPlaceholderColor, unfocusedPlaceholderColor, " +
+            "disabledPlaceholderColor, errorPlaceholderColor, focusedSupportingTextColor, " +
+            "unfocusedSupportingTextColor, disabledSupportingTextColor, errorSupportingTextColor, " +
+            "focusedPrefixColor, unfocusedPrefixColor, disabledPrefixColor, errorPrefixColor, " +
+            "focusedSuffixColor, unfocusedSuffixColor, disabledSuffixColor, errorSuffixColor)",
     ) { _, a -> a.textFieldColors(OutlinedTextFieldDefaults.colors()) }
     composable("Slider(value, onValueChange, modifier, enabled, valueRange, steps, onValueChangeFinished, colors)") { a ->
         Slider(
@@ -468,10 +489,12 @@ private fun Registry.buttons() {
         ) { content() }
     }
     value("ButtonDefaults", ButtonDefaults)
-    composableMember<ButtonDefaults>("buttonColors(containerColor, contentColor)") { _, a ->
+    composableMember<ButtonDefaults>("buttonColors(containerColor, contentColor, disabledContainerColor, disabledContentColor)") { _, a ->
         ButtonDefaults.buttonColors(
             containerColor = a.color("containerColor"),
             contentColor = a.color("contentColor"),
+            disabledContainerColor = a.color("disabledContainerColor"),
+            disabledContentColor = a.color("disabledContentColor"),
         )
     }
     composableMember<ButtonDefaults>("shape") { _, _ -> ButtonDefaults.shape }
@@ -558,16 +581,51 @@ private fun MaterialTextField(a: Args, outlined: Boolean) {
 }
 
 /** [base] with the colors passed by name; colors that are not passed keep their value in [base]. */
+/** [base] with the colors passed to `TextFieldDefaults.colors` or `OutlinedTextFieldDefaults.colors` (borders are indicators). */
 private fun Args.textFieldColors(base: TextFieldColors): TextFieldColors = base.copy(
     focusedTextColor = color("focusedTextColor"),
     unfocusedTextColor = color("unfocusedTextColor"),
+    disabledTextColor = color("disabledTextColor"),
+    errorTextColor = color("errorTextColor"),
     focusedContainerColor = color("focusedContainerColor"),
     unfocusedContainerColor = color("unfocusedContainerColor"),
+    disabledContainerColor = color("disabledContainerColor"),
+    errorContainerColor = color("errorContainerColor"),
     cursorColor = color("cursorColor"),
+    errorCursorColor = color("errorCursorColor"),
+    textSelectionColors = typedOrNull<TextSelectionColors>("selectionColors") ?: base.textSelectionColors,
     focusedIndicatorColor = color(if (has("focusedBorderColor")) "focusedBorderColor" else "focusedIndicatorColor"),
     unfocusedIndicatorColor = color(if (has("unfocusedBorderColor")) "unfocusedBorderColor" else "unfocusedIndicatorColor"),
+    disabledIndicatorColor = color(if (has("disabledBorderColor")) "disabledBorderColor" else "disabledIndicatorColor"),
+    errorIndicatorColor = color(if (has("errorBorderColor")) "errorBorderColor" else "errorIndicatorColor"),
+    focusedLeadingIconColor = color("focusedLeadingIconColor"),
+    unfocusedLeadingIconColor = color("unfocusedLeadingIconColor"),
+    disabledLeadingIconColor = color("disabledLeadingIconColor"),
+    errorLeadingIconColor = color("errorLeadingIconColor"),
+    focusedTrailingIconColor = color("focusedTrailingIconColor"),
+    unfocusedTrailingIconColor = color("unfocusedTrailingIconColor"),
+    disabledTrailingIconColor = color("disabledTrailingIconColor"),
+    errorTrailingIconColor = color("errorTrailingIconColor"),
     focusedLabelColor = color("focusedLabelColor"),
     unfocusedLabelColor = color("unfocusedLabelColor"),
+    disabledLabelColor = color("disabledLabelColor"),
+    errorLabelColor = color("errorLabelColor"),
+    focusedPlaceholderColor = color("focusedPlaceholderColor"),
+    unfocusedPlaceholderColor = color("unfocusedPlaceholderColor"),
+    disabledPlaceholderColor = color("disabledPlaceholderColor"),
+    errorPlaceholderColor = color("errorPlaceholderColor"),
+    focusedSupportingTextColor = color("focusedSupportingTextColor"),
+    unfocusedSupportingTextColor = color("unfocusedSupportingTextColor"),
+    disabledSupportingTextColor = color("disabledSupportingTextColor"),
+    errorSupportingTextColor = color("errorSupportingTextColor"),
+    focusedPrefixColor = color("focusedPrefixColor"),
+    unfocusedPrefixColor = color("unfocusedPrefixColor"),
+    disabledPrefixColor = color("disabledPrefixColor"),
+    errorPrefixColor = color("errorPrefixColor"),
+    focusedSuffixColor = color("focusedSuffixColor"),
+    unfocusedSuffixColor = color("unfocusedSuffixColor"),
+    disabledSuffixColor = color("disabledSuffixColor"),
+    errorSuffixColor = color("errorSuffixColor"),
 )
 
 /** A `0f..1f`-style range argument, or `0f..1f` when it is missing. */
@@ -624,9 +682,9 @@ private fun Registry.materialCore() {
         val minLines = a.int("minLines", 1).coerceAtLeast(1)
         val annotated = a["text"] as? AnnotatedString
         if (annotated != null) {
-            Text(annotated, a.modifier(), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = a.action1("onTextLayout"), style = style)
+            Text(annotated, a.modifier(), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = a.action1("onTextLayout"), style = style, autoSize = a.typedOrNull<TextAutoSize>("autoSize"))
         } else {
-            Text(a.string("text"), a.modifier(), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = a.action1OrNull("onTextLayout"), style = style)
+            Text(a.string("text"), a.modifier(), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, onTextLayout = a.action1OrNull("onTextLayout"), style = style, autoSize = a.typedOrNull<TextAutoSize>("autoSize"))
         }
     }
     composable("Button(onClick, modifier, enabled, shape, colors, elevation, border, contentPadding, interactionSource, content)") { a ->
@@ -841,22 +899,50 @@ private fun Registry.materialCore() {
         "onPrimary" to { it.onPrimary },
         "primaryContainer" to { it.primaryContainer },
         "onPrimaryContainer" to { it.onPrimaryContainer },
+        "inversePrimary" to { it.inversePrimary },
         "secondary" to { it.secondary },
         "onSecondary" to { it.onSecondary },
         "secondaryContainer" to { it.secondaryContainer },
         "onSecondaryContainer" to { it.onSecondaryContainer },
         "tertiary" to { it.tertiary },
         "onTertiary" to { it.onTertiary },
+        "tertiaryContainer" to { it.tertiaryContainer },
+        "onTertiaryContainer" to { it.onTertiaryContainer },
         "background" to { it.background },
         "onBackground" to { it.onBackground },
         "surface" to { it.surface },
         "onSurface" to { it.onSurface },
         "surfaceVariant" to { it.surfaceVariant },
         "onSurfaceVariant" to { it.onSurfaceVariant },
+        "surfaceTint" to { it.surfaceTint },
+        "inverseSurface" to { it.inverseSurface },
+        "inverseOnSurface" to { it.inverseOnSurface },
         "error" to { it.error },
         "onError" to { it.onError },
+        "errorContainer" to { it.errorContainer },
+        "onErrorContainer" to { it.onErrorContainer },
         "outline" to { it.outline },
         "outlineVariant" to { it.outlineVariant },
+        "scrim" to { it.scrim },
+        "surfaceBright" to { it.surfaceBright },
+        "surfaceDim" to { it.surfaceDim },
+        "surfaceContainer" to { it.surfaceContainer },
+        "surfaceContainerHigh" to { it.surfaceContainerHigh },
+        "surfaceContainerHighest" to { it.surfaceContainerHighest },
+        "surfaceContainerLow" to { it.surfaceContainerLow },
+        "surfaceContainerLowest" to { it.surfaceContainerLowest },
+        "primaryFixed" to { it.primaryFixed },
+        "primaryFixedDim" to { it.primaryFixedDim },
+        "onPrimaryFixed" to { it.onPrimaryFixed },
+        "onPrimaryFixedVariant" to { it.onPrimaryFixedVariant },
+        "secondaryFixed" to { it.secondaryFixed },
+        "secondaryFixedDim" to { it.secondaryFixedDim },
+        "onSecondaryFixed" to { it.onSecondaryFixed },
+        "onSecondaryFixedVariant" to { it.onSecondaryFixedVariant },
+        "tertiaryFixed" to { it.tertiaryFixed },
+        "tertiaryFixedDim" to { it.tertiaryFixedDim },
+        "onTertiaryFixed" to { it.onTertiaryFixed },
+        "onTertiaryFixedVariant" to { it.onTertiaryFixedVariant },
     )
     properties<Typography>(
         "displayLarge" to { it.displayLarge },
@@ -882,11 +968,21 @@ private fun Registry.materialCore() {
         "large" to { it.large },
         "extraLarge" to { it.extraLarge },
     )
-    member<TextStyle>("copy(color, fontSize, fontWeight)") { style, a ->
+    member<TextStyle>(
+        "copy(color, fontSize, fontWeight, fontStyle, fontFamily, letterSpacing, background, textDecoration, " +
+            "textAlign, lineHeight)",
+    ) { style, a ->
         style.copy(
             color = a.color("color", style.color),
             fontSize = a.sp("fontSize", style.fontSize),
             fontWeight = a.typedOrNull<FontWeight>("fontWeight") ?: style.fontWeight,
+            fontStyle = a.typedOrNull<FontStyle>("fontStyle") ?: style.fontStyle,
+            fontFamily = a.typedOrNull<FontFamily>("fontFamily") ?: style.fontFamily,
+            letterSpacing = a.sp("letterSpacing", style.letterSpacing),
+            background = a.color("background", style.background),
+            textDecoration = a.typedOrNull<TextDecoration>("textDecoration") ?: style.textDecoration,
+            textAlign = a.typed<TextAlign>("textAlign", style.textAlign),
+            lineHeight = a.sp("lineHeight", style.lineHeight),
         )
     }
 }

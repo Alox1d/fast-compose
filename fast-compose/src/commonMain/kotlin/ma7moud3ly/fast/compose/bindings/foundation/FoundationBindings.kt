@@ -4,6 +4,7 @@ import ma7moud3ly.fast.compose.interpreter.BindingPack
 import ma7moud3ly.fast.compose.interpreter.InterpreterException
 import ma7moud3ly.fast.compose.interpreter.Registry
 import androidx.compose.ui.semantics.Role
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedVisibilityScope
@@ -19,6 +20,7 @@ import androidx.compose.animation.shrinkOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -26,6 +28,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -67,6 +71,16 @@ import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.IntState
+import androidx.compose.runtime.FloatState
+import androidx.compose.runtime.LongState
+import androidx.compose.runtime.DoubleState
+import androidx.compose.runtime.MutableIntState
+import androidx.compose.runtime.MutableFloatState
+import androidx.compose.runtime.MutableLongState
+import androidx.compose.runtime.MutableDoubleState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -82,6 +96,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.DefaultShadowColor
 import androidx.compose.ui.graphics.RectangleShape
@@ -92,6 +107,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -133,6 +149,11 @@ public object FoundationBindings : BindingPack {
         layoutBindings()
         windows()
         images()
+        javaLang()
+        platform()
+        flowExtras()
+        adaptiveExtras()
+        uiExtras()
     }
 }
 
@@ -214,7 +235,8 @@ private fun Registry.layouts() {
         when (val items = a["items"] ?: a["count"]) {
             is Int -> scope.items(items, a.itemFunction("key", null)?.keys(), a.itemFunction("contentType", null) ?: { null }) { content(it) }
             is List<*> -> scope.items(items.size, a.itemFunction("key", items)?.keys(), a.itemFunction("contentType", items) ?: { null }) { content(items[it]) }
-            else -> a.report("items needs a count or a list")
+            // A count from an unbound API, e.g. paging data, shows no items, like a loop over a stand-in.
+            else -> if (!a.isStandIn("items") && !a.isStandIn("count")) a.report("items needs a count or a list")
         }
     }
     composable("key(vararg keys, block)") { a -> Keyed(a.varargs("keys"), a.content("block")) }
@@ -234,15 +256,15 @@ private fun Registry.basicText() {
         val minLines = a.int("minLines", 1).coerceAtLeast(1)
         val annotated = a["text"] as? AnnotatedString
         if (annotated != null) {
-            BasicText(annotated, a.modifier(), style, a.action1OrNull("onTextLayout"), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines)
+            BasicText(annotated, a.modifier(), style, a.action1OrNull("onTextLayout"), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, autoSize = a.typedOrNull<TextAutoSize>("autoSize"))
         } else {
-            BasicText(a.string("text"), a.modifier(), style, a.action1OrNull("onTextLayout"), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines)
+            BasicText(a.string("text"), a.modifier(), style, a.action1OrNull("onTextLayout"), overflow = overflow, softWrap = softWrap, maxLines = maxLines, minLines = minLines, autoSize = a.typedOrNull<TextAutoSize>("autoSize"))
         }
     }
 }
 
 /** Signature shared by the basic and Material `Text`, in the order of Compose's `Text` parameters. */
-public const val TEXT_SIGNATURE: String = "Text(text, modifier, color, fontSize, fontStyle, fontWeight, fontFamily, letterSpacing, " +
+public const val TEXT_SIGNATURE: String = "Text(text, modifier, color, autoSize, fontSize, fontStyle, fontWeight, fontFamily, letterSpacing, " +
     "textDecoration, textAlign, lineHeight, overflow, softWrap, maxLines, minLines, onTextLayout, style)"
 
 /** Text style from the [TEXT_SIGNATURE] arguments: color, fontSize, fontWeight, fontStyle, fontFamily, letterSpacing, textDecoration, textAlign, lineHeight. */
@@ -273,6 +295,24 @@ private fun Registry.state() {
     function("mutableStateOf(value)") { a -> mutableStateOf(a["value"]) }
     function("mutableIntStateOf(value)") { a -> mutableIntStateOf(a.int("value", 0)) }
     function("mutableFloatStateOf(value)") { a -> mutableFloatStateOf(a.float("value", 0f)) }
+    properties<LazyGridState>(
+        "firstVisibleItemIndex" to { it.firstVisibleItemIndex },
+        "firstVisibleItemScrollOffset" to { it.firstVisibleItemScrollOffset },
+        "isScrollInProgress" to { it.isScrollInProgress },
+        "canScrollForward" to { it.canScrollForward },
+        "canScrollBackward" to { it.canScrollBackward },
+        "interactionSource" to { it.interactionSource },
+    )
+    function("mutableLongStateOf(value)") { a -> mutableLongStateOf(a.long("value", 0L)) }
+    function("mutableDoubleStateOf(value)") { a -> mutableDoubleStateOf(a.typed<Number>("value", 0.0).toDouble()) }
+    properties<IntState>("intValue" to { it.intValue })
+    properties<FloatState>("floatValue" to { it.floatValue })
+    properties<LongState>("longValue" to { it.longValue })
+    properties<DoubleState>("doubleValue" to { it.doubleValue })
+    setter<MutableIntState>("intValue") { state, v -> state.intValue = (v as? Number)?.toInt() ?: state.intValue }
+    setter<MutableFloatState>("floatValue") { state, v -> state.floatValue = (v as? Number)?.toFloat() ?: state.floatValue }
+    setter<MutableLongState>("longValue") { state, v -> state.longValue = (v as? Number)?.toLong() ?: state.longValue }
+    setter<MutableDoubleState>("doubleValue") { state, v -> state.doubleValue = (v as? Number)?.toDouble() ?: state.doubleValue }
     function("mutableStateListOf(vararg elements)") { a -> mutableStateListOf<Any?>().apply { addAll(a.varargs("elements")) } }
 }
 
@@ -293,8 +333,13 @@ private fun Registry.modifiers() {
     member<Modifier>("fillMaxHeight(fraction)") { m, a -> m.fillMaxHeight(a.float("fraction", 1f)) }
     member<Modifier>("size(size)") { m, a -> m.size(a.dp("size")) }
     member<Modifier>("size(width, height)") { m, a -> m.size(a.dp("width"), a.dp("height")) }
-    member<Modifier>("width(width)") { m, a -> m.width(a.dp("width")) }
-    member<Modifier>("height(height)") { m, a -> m.height(a.dp("height")) }
+    // `width(IntrinsicSize.Min)` and `height(IntrinsicSize.Max)` share these bindings; the argument decides.
+    member<Modifier>("width(width)") { m, a ->
+        (a["width"] as? IntrinsicSize)?.let { m.intrinsicSize(it, height = false, required = false) } ?: m.width(a.dp("width"))
+    }
+    member<Modifier>("height(height)") { m, a ->
+        (a["height"] as? IntrinsicSize)?.let { m.intrinsicSize(it, height = true, required = false) } ?: m.height(a.dp("height"))
+    }
     member<Modifier>("offset(x: Dp, y: Dp)") { m, a -> m.offset(a.dp("x", 0.dp), a.dp("y", 0.dp)) }
     member<Modifier>("offset(offset: Density.() -> IntOffset)") { m, a ->
         val position = a.scopedCalculation<Density>("offset")
@@ -306,7 +351,20 @@ private fun Registry.modifiers() {
         val shape = a.typed("shape", RectangleShape)
         if (brush != null) m.background(brush, shape, a.float("alpha", 1f)) else m.background(a.color("color"), shape)
     }
-    member<Modifier>("border(width, color, shape)") { m, a -> m.border(a.dp("width", 1.dp), a.color("color", Color.Black), a.typed("shape", RectangleShape)) }
+    member<Modifier>("border(width: Dp, color: Color, shape)") { m, a ->
+        m.border(a.dp("width", 1.dp), a.color("color", Color.Black), a.typed("shape", RectangleShape))
+    }
+    member<Modifier>("border(border: BorderStroke, shape)") { m, a ->
+        m.border(a.typed("border", BorderStroke(1.dp, Color.Black)), a.typed("shape", RectangleShape))
+    }
+    type<BorderStroke>("BorderStroke")
+    function("BorderStroke(width, color: Color)") { a ->
+        BorderStroke(a.dp("width", 1.dp), a.color("color", Color.Black))
+    }
+    function("BorderStroke(width, brush: Brush)") { a ->
+        BorderStroke(a.dp("width", 1.dp), a.typed<Brush>("brush", SolidColor(Color.Black)))
+    }
+    properties<BorderStroke>("width" to { it.width }, "brush" to { it.brush })
     member<Modifier>("clip(shape)") { m, a -> m.clip(a.typed("shape", RectangleShape)) }
     member<Modifier>("alpha(alpha)") { m, a -> m.alpha(a.float("alpha", 1f)) }
     member<Modifier>("clickable(enabled, onClickLabel, role, onClick)") { m, a ->
@@ -333,7 +391,8 @@ private fun Registry.modifiers() {
         when (val scope = a.receivers.firstOrNull { it is RowScope || it is ColumnScope }) {
             is RowScope -> with(scope) { m.weight(weight, fill) }
             is ColumnScope -> with(scope) { m.weight(weight, fill) }
-            else -> throw InterpreterException("Modifier.weight is only available in Row or Column")
+            // Kotlin wouldn't compile this; in previews the parent is often a stand-in container, so it is left out.
+            else -> m.also { a.warn("Modifier.weight is only available in Row or Column; it is left out") }
         }
     }
     member<Modifier>("align(alignment)") { m, a ->
@@ -343,7 +402,7 @@ private fun Registry.modifiers() {
             is RowScope -> if (alignment is Alignment.Vertical) with(scope) { m.align(alignment) } else null
             is ColumnScope -> if (alignment is Alignment.Horizontal) with(scope) { m.align(alignment) } else null
             else -> null
-        } ?: throw InterpreterException("Modifier.align is not available here")
+        } ?: m.also { a.warn("Modifier.align is not available here; it is left out") }
     }
     member<Modifier>("shadow(elevation, shape, clip, ambientColor, spotColor)") { m, a ->
         val elevation = a.dp("elevation", 0.dp)
@@ -366,13 +425,31 @@ private fun Registry.modifiers() {
     member<Modifier>("zIndex(zIndex)") { m, a -> m.zIndex(a.float("zIndex", 0f)) }
     member<Modifier>("requiredSize(size)") { m, a -> m.requiredSize(a.dp("size")) }
     member<Modifier>("defaultMinSize(minWidth, minHeight)") { m, a -> m.defaultMinSize(a.dp("minWidth"), a.dp("minHeight")) }
-    member<Modifier>("then(other)") { m, a -> m.then(a.modifier("other")) }
+    // A modifier the preview can't build, e.g. a custom `ModifierNodeElement`, is left out with a warning.
+    member<Modifier>("then(other)") { m, a ->
+        when (val other = a["other"]) {
+            is Modifier -> m.then(other)
+            else -> m.also { if (other != null && !a.isStandIn("other")) a.warn("Modifier.then(${other::class.simpleName}) is not supported in previews; it is left out") }
+        }
+    }
 }
 
 private fun Registry.values() {
     member<Number>("dp") { n, _ -> n.toFloat().dp }
     member<Number>("sp") { n, _ -> n.toFloat().sp }
-    member<Number>("times(other)") { n, a -> (a["other"] as? Dp)?.times(n.toFloat()) ?: throw InterpreterException("Unsupported operand for '*'") }
+    member<Number>("times(other)") { n, a ->
+        when (val other = a["other"]) {
+            is Dp -> other * n.toFloat()
+            is TextUnit -> other * n.toFloat()
+            else -> throw InterpreterException("Unsupported operand for '*'")
+        }
+    }
+    member<TextUnit>("times(other)") { t, a -> t * a.float("other", 1f) }
+    // `14.sp / 7.sp` is a plain number, the ratio of the values.
+    member<TextUnit>("div(other)") { t, a -> (a["other"] as? TextUnit)?.let { t.value / it.value } ?: (t / a.float("other", 1f)) }
+    member<TextUnit>("unaryMinus") { t, _ -> -t }
+    member<TextUnit>("compareTo(other)") { t, a -> t.compareTo(a.typed<TextUnit>("other", t)) }
+    properties<TextUnit>("value" to { it.value }, "isSp" to { it.isSp }, "isEm" to { it.isEm })
     member<Dp>("plus(other)") { d, a -> d + a.dp("other", 0.dp) }
     member<Dp>("minus(other)") { d, a -> d - a.dp("other", 0.dp) }
     member<Dp>("times(other)") { d, a -> d * a.float("other", 1f) }
@@ -432,6 +509,14 @@ private fun Registry.values() {
         "SpaceAround" to Arrangement.SpaceAround, "SpaceEvenly" to Arrangement.SpaceEvenly,
     )
     member<Arrangement>("spacedBy(space)") { _, a -> Arrangement.spacedBy(a.dp("space", 0.dp)) }
+    member<Arrangement>("spacedBy(space, alignment)") { _, a ->
+        val space = a.dp("space", 0.dp)
+        when (val alignment = a["alignment"]) {
+            is Alignment.Horizontal -> Arrangement.spacedBy(space, alignment)
+            is Alignment.Vertical -> Arrangement.spacedBy(space, alignment)
+            else -> Arrangement.spacedBy(space)
+        }
+    }
 
     value("CircleShape", CircleShape)
     value("RectangleShape", RectangleShape)
@@ -460,6 +545,11 @@ private fun Registry.values() {
     value("TextDecoration", TextDecoration.Companion)
     constants<TextDecoration.Companion>("None" to TextDecoration.None, "Underline" to TextDecoration.Underline, "LineThrough" to TextDecoration.LineThrough)
     value("FontFamily", FontFamily.Companion)
+    // Fonts that are stand-ins, e.g. `Font(Res.font.…)` without a binding, are left out; with none, the default font.
+    function("FontFamily(vararg fonts)") { a ->
+        val fonts = a.varargs("fonts").flatMap { if (it is List<*>) it else listOf(it) }.filterIsInstance<Font>()
+        if (fonts.isEmpty()) FontFamily.Default else FontFamily(fonts)
+    }
     constants<FontFamily.Companion>(
         "Default" to FontFamily.Default, "Monospace" to FontFamily.Monospace, "Serif" to FontFamily.Serif,
         "SansSerif" to FontFamily.SansSerif, "Cursive" to FontFamily.Cursive,

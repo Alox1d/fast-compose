@@ -20,6 +20,7 @@ import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.Indication
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.heightIn
@@ -97,14 +98,23 @@ internal fun Registry.modifierExtras() {
     lazyExtras()
 }
 
+/** Marker for `IntrinsicSize.Min` and `IntrinsicSize.Max` (an enum without a companion). */
+private object IntrinsicSizes
+
 private fun Registry.sizeModifiers() {
     member<Modifier>("heightIn(min, max)") { m, a -> m.heightIn(a.dp("min"), a.dp("max")) }
     member<Modifier>("widthIn(min, max)") { m, a -> m.widthIn(a.dp("min"), a.dp("max")) }
     member<Modifier>("sizeIn(minWidth, minHeight, maxWidth, maxHeight)") { m, a ->
         m.sizeIn(a.dp("minWidth"), a.dp("minHeight"), a.dp("maxWidth"), a.dp("maxHeight"))
     }
-    member<Modifier>("requiredWidth(width)") { m, a -> m.requiredWidth(a.dp("width")) }
-    member<Modifier>("requiredHeight(height)") { m, a -> m.requiredHeight(a.dp("height")) }
+    member<Modifier>("requiredWidth(width)") { m, a ->
+        (a["width"] as? IntrinsicSize)?.let { m.intrinsicSize(it, height = false, required = true) } ?: m.requiredWidth(a.dp("width"))
+    }
+    member<Modifier>("requiredHeight(height)") { m, a ->
+        (a["height"] as? IntrinsicSize)?.let { m.intrinsicSize(it, height = true, required = true) } ?: m.requiredHeight(a.dp("height"))
+    }
+    value("IntrinsicSize", IntrinsicSizes)
+    constants<IntrinsicSizes>("Min" to IntrinsicSize.Min, "Max" to IntrinsicSize.Max)
     member<Modifier>("absoluteOffset(x: Dp, y: Dp)") { m, a -> m.absoluteOffset(a.dp("x", 0.dp), a.dp("y", 0.dp)) }
     member<Modifier>("absoluteOffset(offset: Density.() -> IntOffset)") { m, a ->
         val position = a.scopedCalculation<Density>("offset")

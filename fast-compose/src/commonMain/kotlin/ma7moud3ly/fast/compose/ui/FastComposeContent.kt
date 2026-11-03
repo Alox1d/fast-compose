@@ -32,7 +32,7 @@ public fun FastComposeContent(
         if (program == null) {
             ErrorBox("Fix the errors to see the content")
         } else {
-            val interpreter = rememberInterpreter(code, program, registry)
+            val interpreter = rememberInterpreter(code, program, registry, resources)
             val function = remember(program, entry) { program.entry(entry) }
             when {
                 function != null -> key(function) {

@@ -17,6 +17,16 @@ class SignatureTest {
     }
 
     @Test
+    fun positionalAfterNamedFillsTheNextFreeParameter() {
+        val column = Signature.parse("Column(modifier, verticalArrangement, horizontalAlignment, content)")
+        val named = mapOf("modifier" to "m", "verticalArrangement" to "v", "horizontalAlignment" to "h")
+        val arguments = named.map { (name, value) -> EvaluatedArgument(name, value) } + EvaluatedArgument(null, "c")
+        val match = column.match(CallShape(arguments, trailing = null))
+        assertEquals(named + ("content" to "c"), match.values)
+        assertEquals(emptyList(), match.problems)
+    }
+
+    @Test
     fun trailingLambdaFillsLastParameter() {
         val match = Signature.parse("Box(modifier, content)").match(emptyList(), emptyMap(), trailing = "lambda")
         assertEquals(mapOf("content" to "lambda"), match.values)

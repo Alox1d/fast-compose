@@ -40,6 +40,24 @@ public data class Import(val path: String, val alias: String? = null, val isStar
 
     /** Name the import makes visible in the file: the alias or the imported name; null for star imports. */
     public val visibleName: String? get() = alias ?: importedName
+
+    /**
+     * Package of the top-level declaration an explicit import reaches, by Kotlin's naming conventions: the segments
+     * before the first capitalized one. `a.b.Devices.DESKTOP` gives `a.b`; `a.b.label` gives `a.b`.
+     */
+    public val declarationPackage: String get() = segments.take(declarationIndex).joinToString(".")
+
+    /** Top-level declaration an explicit import reaches: `Devices` in `a.b.Devices.DESKTOP`, `label` in `a.b.label`. */
+    public val declarationName: String get() = segments[declarationIndex]
+
+    /** Members imported from inside [declarationName]: `[DESKTOP]` in `a.b.Devices.DESKTOP`; empty otherwise. */
+    public val memberPath: List<String> get() = if (isStar) emptyList() else segments.drop(declarationIndex + 1)
+
+    private val segments: List<String> get() = path.split('.')
+
+    private val declarationIndex: Int
+        get() = segments.indexOfFirst { it.firstOrNull()?.isUpperCase() == true }
+            .let { if (it < 0 || isStar) segments.lastIndex else it }
 }
 
 // ---------- Declarations ----------
@@ -67,6 +85,10 @@ public data class FunDecl(
     val body: Block?,
     val isSuspend: Boolean = false,
     val isPrivate: Boolean = false,
+    /** `expect fun`: a declaration without a body whose `actual` is in a platform source set. */
+    val isExpect: Boolean = false,
+    /** `actual fun`: the platform body of an `expect fun`, which holds the default values of its parameters. */
+    val isActual: Boolean = false,
 ) : Decl {
     public fun hasAnnotation(name: String): Boolean = annotations.any { it.name == name }
 }
@@ -254,6 +276,9 @@ public data class TypeCheck(
 /** `expr as Type` / `expr as? Type`. */
 public data class Cast(override val id: Int, override val span: Span, val expr: Expr, val type: TypeRef, val isSafe: Boolean) : Expr
 
+/** An anonymous `object : Types { members }` expression; [decl] is its class, named `object`. */
+public data class ObjectExpr(override val id: Int, override val span: Span, val decl: ClassDecl) : Expr
+
 /** `if`; single-statement branches are wrapped in a [Block]. */
 public data class IfExpr(
     override val id: Int,
@@ -263,15 +288,20 @@ public data class IfExpr(
     val otherwise: Block?,
 ) : Expr
 
+/** `when`; [subjectName] is the name in `when (val name = subject)`, visible to the conditions and branches. */
 public data class WhenExpr(
     override val id: Int,
     override val span: Span,
     val subject: Expr?,
     val branches: List<WhenBranch>,
+    val subjectName: String? = null,
 ) : Expr
 
-/** A `when` branch; empty [conditions] means `else`. */
-public data class WhenBranch(val conditions: List<WhenCondition>, val body: Block)
+/**
+ * A `when` branch; empty [conditions] means `else`. A [guard] (`condition if guard ->`) must also be true for the
+ * branch to be taken.
+ */
+public data class WhenBranch(val conditions: List<WhenCondition>, val body: Block, val guard: Expr? = null)
 
 public sealed interface WhenCondition {
     /** Matches when equal to the subject, or when true if there is no subject. */

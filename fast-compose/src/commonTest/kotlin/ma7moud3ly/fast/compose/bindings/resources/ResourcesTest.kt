@@ -1,10 +1,16 @@
 package ma7moud3ly.fast.compose.bindings.resources
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontWeight
+import ma7moud3ly.fast.compose.bindings.foundation.FoundationBindings
+import ma7moud3ly.fast.compose.interpreter.StandIn
 import ma7moud3ly.fast.compose.interpreter.Interpreter
 import ma7moud3ly.fast.compose.interpreter.Registry
 import ma7moud3ly.fast.compose.parser.KotlinParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 import kotlin.test.assertNull
 
 class ResourcesTest {
@@ -31,6 +37,70 @@ class ResourcesTest {
             mapOf("title" to "Hello, %1\$s!", "quote" to "\"Hi\" it's & me", "styled" to "Tap here", "empty" to ""),
             StringsXml.parse(xml),
         )
+    }
+
+    @Test
+    fun pluralsAndStringArrays() {
+        val strings = StringsXml.parse(
+            """
+            <resources>
+                <plurals name="items">
+                    <item quantity="one">%d item</item>
+                    <item quantity="other">%d items</item>
+                </plurals>
+                <string-array name="days">
+                    <item>Sat</item>
+                    <item>Sun</item>
+                </string-array>
+                <string name="title">Title</string>
+            </resources>
+            """,
+        )
+        assertEquals("%d items", strings[StringsXml.pluralKey("items", "other")])
+        assertEquals(listOf("Sat", "Sun"), listOf(0, 1).map { strings[StringsXml.arrayKey("days", it)] })
+        assertEquals("Title", strings["title"])
+        assertEquals(listOf("one", "other", "zero", "two", "few", "many"), listOf(
+            pluralQuantity(1, null), pluralQuantity(0, "en"), pluralQuantity(0, "ar"),
+            pluralQuantity(2, "ar"), pluralQuantity(5, "ar-EG"), pluralQuantity(11, "ar"),
+        ))
+    }
+
+    @Test
+    fun fontsFromResources() {
+        val resources = MemoryResources().apply { put("src/main/res/font/inter.ttf", byteArrayOf(0, 1, 0, 0)) }
+        val program = KotlinParser.parse("fun test() = listOf(Font(R.font.inter, FontWeight.Bold), Font(R.font.missing))").program
+        val registry = Registry().apply {
+            install(FoundationBindings)
+            install(ResourceBindings)
+        }
+        val interpreter = Interpreter(program, registry).apply { hostValues[RESOURCES_HOST_VALUE] = resources }
+        val (found, missing) = interpreter.call("test") as List<*>
+        assertEquals(FontWeight.Bold, assertIs<Font>(found).weight)
+        assertIs<StandIn>(missing)
+    }
+
+    @Test
+    fun colorReferences() {
+        val colors = ColorsXml.parse(
+            """
+            <resources>
+                <!-- <color name="old">#000</color> -->
+                <color name="purple">#FF6200EE</color>
+                <color name="primary">@color/purple</color>
+            </resources>
+            """,
+        )
+        assertEquals(mapOf("purple" to "#FF6200EE", "primary" to "@color/purple"), colors)
+        val vector = """<path android:fillColor="@color/primary" android:strokeColor="@android:color/white"
+            android:tint="?attr/colorControlNormal" android:pathData="M0,0"/>"""
+        assertEquals(
+            """<path android:fillColor="#FF6200EE" android:strokeColor="#FFFFFFFF"
+            android:tint="#FF000000" android:pathData="M0,0"/>""",
+            resolveColorReferences(vector, colors),
+        )
+        assertEquals(Color(0xFF6200EE), parseColor("#6200EE"))
+        assertEquals(Color(0xFFFF0000), parseColor("#F00"))
+        assertNull(parseColor("@color/purple"))
     }
 
     @Test

@@ -28,7 +28,7 @@ public class Args internal constructor(
     public fun varargs(name: String): List<Any?> = get(name) as? List<*> ?: emptyList()
 
     public inline fun <reified T> typed(name: String, default: T): T {
-        if (!has(name)) return default
+        if (!has(name) || isStandIn(name)) return default
         val value = get(name)
         if (value is T) return value
         invalid(name, value)
@@ -37,9 +37,21 @@ public class Args internal constructor(
 
     public inline fun <reified T> typedOrNull(name: String): T? = typed<T?>(name, null)
 
+    /** True when the argument is a stand-in for a library API without a binding; getters then use their default. */
+    @PublishedApi
+    internal fun isStandIn(name: String): Boolean = values[name] is StandIn
+
     @PublishedApi
     internal fun invalid(name: String, value: Any?) {
-        report("Invalid value for '$name' of ${signature.name}: ${typeName(value)}")
+        warn("Invalid value for '$name' of ${signature.name}: ${typeName(value)}; its default is used")
+    }
+
+    /** A value the host gave the interpreter for bindings that run outside composition, see [Interpreter.hostValues]. */
+    internal fun hostValue(name: String): Any? = interpreter.hostValues[name]
+
+    /** Runs the code again once [isDone] is true, for a value built while a resource was still loading. */
+    internal fun runAgainWhen(isDone: () -> Boolean) {
+        interpreter.loadingChecks += isDone
     }
 
     /** Reports a problem to the preview's error log without failing the call. */
@@ -197,6 +209,18 @@ public class Args internal constructor(
     public fun suspendAction1(name: String): suspend (Any?) -> Unit {
         val fn = lambda(name) ?: return {}
         return { interpreter.invokeSuspendSafely(fn, NoReceiver, listOf(it)) }
+    }
+
+    /** Suspend lambda with one parameter that returns a value, e.g. `flow.map { value -> … }`; missing, it returns its argument. */
+    public fun suspendFunction1(name: String): suspend (Any?) -> Any? {
+        val fn = lambda(name) ?: return { it }
+        return { interpreter.invokeSuspendSafely(fn, NoReceiver, listOf(it)) }
+    }
+
+    /** Suspend lambda with a receiver scope that returns a value, e.g. `withContext(context) { … }`. */
+    public fun <S> suspendCalculation(name: String): suspend S.() -> Any? {
+        val fn = lambda(name) ?: return { null }
+        return { interpreter.invokeSuspendSafely(fn, this, emptyList()) }
     }
 
     /** Suspend lambda with a receiver scope, e.g. LaunchedEffect's `block: suspend CoroutineScope.() -> Unit`. Cancellation passes through. */

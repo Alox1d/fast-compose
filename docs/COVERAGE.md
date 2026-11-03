@@ -24,7 +24,22 @@ No imports are needed: bound APIs work without `import` lines.
 Fast Compose runs a large, practical subset of Kotlin and Compose, not all of it:
 
 - **Only bound APIs.** Code can call the APIs that have bindings, plus anything declared in the code itself.
-  Libraries such as ViewModel, Hilt or Room are not available unless you add bindings for them.
+  Libraries such as ViewModel, Hilt or Room are not available unless you add bindings for them. An imported library
+  API without a binding runs as a stand-in, with a warning: calls and members on it give stand-ins, conditions on
+  it are false, loops over it are empty, it shows as empty text, and components use their defaults instead. So the
+  screen around it still renders. A library class called with named arguments keeps them, so `Theme(background = …).background`
+  reads back. A library container still shows its content lambda. ViewModel factories (`viewModel()`,
+  `hiltViewModel()`, `koinViewModel()`) can't run; preview the composable that takes the screen's state instead. The same goes for other APIs without a binding: a missing member gives a stand-in
+  (an unknown `Modifier` call is skipped), an unknown name gives a stand-in unless it is close to a known one (a
+  typo such as `Txet` stays an error), and an unknown or invalid argument to a component is a warning.
+- **Platform code.** An `expect` function whose `actual` is not loaded does nothing if it returns nothing, and
+  fails otherwise. A default argument that fails gives the empty value of its type (`0`, `""`, `false`, `null`, an
+  empty list), with a warning, so sample data still builds.
+- **Platform APIs.** Previews report `Build.VERSION.SDK_INT` 30 (so dynamic colors stay off), and set
+  `LocalInspectionMode` to `true`. `Integer`, `Locale`, `kotlin.time.Clock`, `Random`, `Regex` and `StringBuilder`
+  work; `Context`, `View` and `java.time` run as stand-ins. The lifecycle is always resumed, and window size
+  classes come from the preview frame's size. Paging data built from lists (`PagingData.from`) shows as loaded. Rounded, Sharp and TwoTone icons show
+  the Filled icon of the same name.
 - **Types are not checked.** Type annotations are parsed and used for overloads and `is` checks, but a wrong type is
   reported when the code runs, not before.
 - **Not every language feature.** Advanced features such as reflection are not supported yet; unsupported code
