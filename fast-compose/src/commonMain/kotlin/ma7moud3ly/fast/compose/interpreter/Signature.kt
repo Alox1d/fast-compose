@@ -26,16 +26,7 @@ public class Signature private constructor(
     private val known: Set<String> = (params + namedOnly).toHashSet()
 
     /** Matches call arguments to parameter names. */
-    /**
-     * Matches arguments to the parameters. The first [leading] positional arguments, written before any named one, fill
-     * parameters in order; positional arguments written after named ones fill the next parameters not passed by name.
-     */
-    public fun match(
-        positional: List<Any?>,
-        named: Map<String, Any?>,
-        trailing: Any?,
-        leading: Int = positional.size,
-    ): Match {
+    public fun match(positional: List<Any?>, named: Map<String, Any?>, trailing: Any?): Match {
         val values = LinkedHashMap<String, Any?>()
         if (lenient) {
             values.putAll(named)
@@ -43,13 +34,11 @@ public class Signature private constructor(
         }
         val problems = ArrayList<String>(0)
         var next = 0
-        // In `Column(modifier = m, verticalArrangement = a, horizontalAlignment = h, content)` the positional argument
-        // comes after named ones, so it skips their parameters and fills `content`.
         for (param in params) {
             if (param == varargParam) {
                 values[param] = positional.drop(next)
                 next = positional.size
-            } else if (next < positional.size && (next < leading || param !in named)) {
+            } else if (next < positional.size) {
                 values[param] = positional[next++]
             }
         }
@@ -71,22 +60,70 @@ public class Signature private constructor(
         return Match(values, problems)
     }
 
+    /** Matches evaluated source arguments without losing the positions of named arguments. */
+    internal fun match(call: CallShape): Match {
+        val arguments = call.arguments
+        if (arguments == null || lenient) return match(call.positional, call.named, call.trailing)
+        val values = LinkedHashMap<String, Any?>()
+        val problems = mutableListOf<String>()
+        val varargs = mutableListOf<Any?>()
+        var next = 0
+        var positionalAllowed = true
+        for ((argName, value) in arguments) {
+            if (argName != null) {
+                when {
+                    argName !in known -> problems += unknownParameter(argName)
+                    argName in values -> problems += "Parameter '$argName' of $name is passed twice"
+                    else -> values[argName] = value
+                }
+                if (argName == params.getOrNull(next)) {
+                    next++
+                } else {
+                    positionalAllowed = false
+                }
+                // Parameters after a vararg must be named (or supplied as a trailing lambda).
+                if (argName == varargParam) positionalAllowed = false
+            } else if (!positionalAllowed) {
+                problems += "Positional argument is not allowed here for $name"
+            } else {
+                val param = params.getOrNull(next)
+                when {
+                    param == null -> problems += "Too many arguments for $name"
+                    param == varargParam -> {
+                        varargs += value
+                        values[param] = varargs
+                    }
+                    else -> {
+                        values[param] = value
+                        next++
+                    }
+                }
+            }
+        }
+        if (varargParam != null && varargParam !in values) values[varargParam] = emptyList<Any?>()
+        if (call.trailing != null) {
+            when (val last = params.lastOrNull()) {
+                null, varargParam -> problems += "$name does not take a trailing lambda"
+                in values -> problems += "Too many arguments for $name"
+                else -> values[last] = call.trailing
+            }
+        }
+        return Match(values, problems)
+    }
+
     /**
      * True when [call] matches without problems and its arguments fit the parameter [types], checked with [isA];
      * used to choose between overloads.
      */
     public fun accepts(call: CallShape, isA: (value: Any?, type: String) -> Boolean = { _, _ -> true }): Boolean {
         if (lenient) return true
-        val capacity = if (varargParam != null) Int.MAX_VALUE else params.size - if (call.hasTrailing) 1 else 0
-        if (call.positional.size > capacity) return false
-        if (call.hasTrailing && (params.isEmpty() || params.last() == varargParam)) return false
-        if (!call.named.keys.all { it in known }) return false
-        if (types.isEmpty()) return true
-        val values = match(call.positional, call.named, call.trailing, call.leading).values
+        val match = match(call)
+        if (match.problems.isNotEmpty()) return false
+        val values = match.values
         return types.all { (param, type) ->
             if (param !in values) return@all true
             val value = values[param]
-            if (param == varargParam) (value as List<*>).all { isA(it, type) } else isA(value, type)
+            if (param == varargParam) (value as? List<*>)?.all { isA(it, type) } == true else isA(value, type)
         }
     }
 
@@ -103,6 +140,9 @@ public class Signature private constructor(
     }
 
     public companion object {
+        internal fun forParameters(name: String, params: List<String>, varargParam: String?): Signature =
+            Signature(name, params, emptyList(), varargParam, emptyMap(), lenient = false)
+
         /** Parses a signature like `"Button(onClick, modifier, enabled, *, shape, content)"`. */
         public fun parse(text: String): Signature {
             val open = text.indexOf('(')
@@ -140,14 +180,25 @@ public class Signature private constructor(
     }
 }
 
+/** An evaluated source argument; a null [name] denotes a positional argument. */
+internal data class EvaluatedArgument(val name: String?, val value: Any?)
+
 /** Arguments of a call, used to choose between overloads before they are matched. */
-/** Arguments of a call; [leading] counts the positional ones written before any named argument. */
-public class CallShape(
+public class CallShape private constructor(
     public val positional: List<Any?>,
     public val named: Map<String, Any?>,
     public val trailing: Any?,
-    public val leading: Int = positional.size,
+    internal val arguments: List<EvaluatedArgument>?,
 ) {
+    public constructor(positional: List<Any?>, named: Map<String, Any?>, trailing: Any?) : this(positional, named, trailing, null)
+
+    internal constructor(arguments: List<EvaluatedArgument>, trailing: Any?) : this(
+        arguments.filter { it.name == null }.map { it.value },
+        buildMap { for (argument in arguments) argument.name?.let { put(it, argument.value) } },
+        trailing,
+        arguments,
+    )
+
     public val hasTrailing: Boolean get() = trailing != null
 
     public companion object {

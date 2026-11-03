@@ -20,7 +20,8 @@ class SignatureTest {
     fun positionalAfterNamedFillsTheNextFreeParameter() {
         val column = Signature.parse("Column(modifier, verticalArrangement, horizontalAlignment, content)")
         val named = mapOf("modifier" to "m", "verticalArrangement" to "v", "horizontalAlignment" to "h")
-        val match = column.match(listOf("c"), named, trailing = null, leading = 0)
+        val arguments = named.map { (name, value) -> EvaluatedArgument(name, value) } + EvaluatedArgument(null, "c")
+        val match = column.match(CallShape(arguments, trailing = null))
         assertEquals(named + ("content" to "c"), match.values)
         assertEquals(emptyList(), match.problems)
     }
