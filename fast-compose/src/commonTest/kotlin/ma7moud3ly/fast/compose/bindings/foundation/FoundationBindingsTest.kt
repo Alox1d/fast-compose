@@ -360,4 +360,15 @@ class FoundationBindingsTest {
     fun constraints() {
         assertEquals(50, run("fun test() = Constraints(maxWidth = 100).copy(maxWidth = 50).maxWidth"))
     }
+
+    @Test
+    fun animateContentSizeAcceptsComposeArguments() {
+        assertEquals(true, runClean("fun test() = Modifier.animateContentSize() is Modifier"))
+        assertEquals(true, runClean("fun test() = Modifier.animateContentSize(spring()) is Modifier"))
+        assertEquals(true, runClean("fun test() = Modifier.animateContentSize(animationSpec = tween(250)) is Modifier"))
+        assertEquals(
+            true,
+            runClean("fun test() = Modifier.animateContentSize(finishedListener = { before, after -> before == after }) is Modifier"),
+        )
+    }
 }
