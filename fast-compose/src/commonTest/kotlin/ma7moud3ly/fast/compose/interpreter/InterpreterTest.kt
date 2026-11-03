@@ -346,6 +346,21 @@ class InterpreterTest {
     }
 
     @Test
+    fun extensionsOnNullableReceivers() {
+        val code = """
+            fun String?.orDash(): String = this ?: "-"
+
+            fun test(): List<String> {
+                val missing: String? = null
+                return listOf(missing.orDash(), "a".orDash())
+            }
+        """.trimIndent()
+        val program = KotlinParser.parse(code).program
+        assertEquals("String?", program.functions.first().receiver?.text)
+        assertEquals(listOf("-", "a"), run(code))
+    }
+
+    @Test
     fun primitiveArraysAndMath() {
         val code = """
             fun test(): List<Any> {

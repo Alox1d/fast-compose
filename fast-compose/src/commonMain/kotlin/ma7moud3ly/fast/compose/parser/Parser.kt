@@ -271,18 +271,21 @@ public class Parser(private val tokens: List<Token>) {
         val from = pos
         var name = expect(IDENTIFIER, "a name")
         var receiverEnd = -1
+        var nullable = false
         while (true) {
             if (at(LT)) skipTypeArguments()
             if (at(QUESTION) && peekAfter().type == DOT) advance()
-            if (at(DOT) && peekAfter().type == IDENTIFIER) {
+            // `Type?.name`: the lexer reads `?.` as one token.
+            if ((at(DOT) || at(SAFE_DOT)) && peekAfter().type == IDENTIFIER) {
                 receiverEnd = pos
+                nullable = at(SAFE_DOT)
                 advance()
                 name = advance()
             } else {
                 break
             }
         }
-        val receiver = if (receiverEnd >= 0) TypeRef(textOf(from, receiverEnd)) else null
+        val receiver = if (receiverEnd >= 0) TypeRef(textOf(from, receiverEnd) + if (nullable) "?" else "") else null
         return receiver to name.value
     }
 
