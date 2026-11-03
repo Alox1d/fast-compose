@@ -875,6 +875,9 @@ public class Interpreter(
     private fun resolveMemberCall(receiver: Any?, name: String, args: CallArgs, env: Env): Target? {
         when (receiver) {
             is StandIn -> return Target.Done(if (name == "not") true else StandIn("${receiver.name}.$name"))
+            is StandInObject -> return Target.Done(
+                if (name == "copy") StandInObject(receiver.name, receiver.properties + args.named) else StandIn("${receiver.name}.$name"),
+            )
             is UserValue -> {
                 findMethod(receiver.decl, name, args)?.let {
                     return Target.UserFunction(
@@ -936,6 +939,9 @@ public class Interpreter(
         if (name in LAMBDA_COLLECTION_FUNCTIONS && args.trailing is LambdaValue && isIterable(receiver)) {
             return Target.Intrinsic(name, receiver)
         }
+        if (name in SINGLE_LAMBDA_FUNCTIONS && args.trailing is LambdaValue && receiver !is StandIn) {
+            return Target.Intrinsic(name, receiver)
+        }
         if (name in MEMBER_INTRINSICS && (args.trailing != null || args.positional.size == 1)) {
             if (name !in ITERATING_INTRINSICS || isIterable(receiver)) return Target.Intrinsic(
                 name,
@@ -993,7 +999,7 @@ public class Interpreter(
 
     private fun invokeTarget(target: Target?, args: CallArgs, name: String): Any? = when (target) {
         null -> throw unresolved(name)
-        is Target.Done -> target.value
+        is Target.Done -> standInResult(target.value, name, args)
         is Target.UserFunction -> when {
             target.decl.isComposable -> throw composableFromPlain(name)
             target.decl.isSuspend -> throw suspendFromPlain(name)
@@ -1013,11 +1019,11 @@ public class Interpreter(
         when (target) {
             null -> showIfError(fail(unresolved(name, env.file).message ?: name))
             is ErrorValue -> showIfError(target)
-            is Target.Done -> target.value.also { value ->
+            is Target.Done -> standInResult(target.value, name, args).also { value ->
                 // A stand-in for a library container, e.g. `PullToRefreshBox(…) { content() }`, still shows its
                 // content, in a Box, so a wrapper from an unbound library doesn't hide the screen.
                 val content = args.trailing
-                if (value is StandIn && name.first().isUpperCase() && content is LambdaValue && content.lambda.params.isEmpty()) {
+                if ((value is StandIn || value is StandInObject) && name.first().isUpperCase() && content is LambdaValue && content.lambda.params.isEmpty()) {
                     Box { showIfError(invokeComposable(content, this, emptyList())) }
                 }
             }
@@ -1202,7 +1208,14 @@ public class Interpreter(
         val import = file.program.imports.firstOrNull { !it.isStar && it.visibleName == name }
         val packageName = import?.declarationPackage ?: if (name in IMPLICIT_JAVA_LANG) "java.lang" else return null
         if (warnedOnce.add("import:${import?.path ?: "java.lang.$name"}")) {
-            warn("'$name' ($packageName) has no binding; a stand-in is used, so the preview may differ")
+            if (name in INJECTION_CALLS) {
+                warn(
+                    "'$name' ($packageName) can't create a ViewModel or injected object in previews; a stand-in is " +
+                        "used. Preview the composable that takes the screen's state as parameters instead",
+                )
+            } else {
+                warn("'$name' ($packageName) has no binding; a stand-in is used, so the preview may differ")
+            }
         }
         return StandIn(name)
     }
@@ -1210,6 +1223,7 @@ public class Interpreter(
     private fun tryGetMember(receiver: Any?, name: String): Any? {
         when (receiver) {
             is StandIn -> return StandIn("${receiver.name}.$name")
+            is StandInObject -> return if (receiver.properties.containsKey(name)) receiver.properties[name] else StandIn("${receiver.name}.$name")
             is UserValue -> {
                 if (receiver.hasField(name)) return receiver.read(name)
                 findGetter(receiver.decl, name)?.let { return evalGetter(it, receiver) }
@@ -1328,8 +1342,60 @@ public class Interpreter(
                 Unit
             }
 
-            in LAMBDA_COLLECTION_FUNCTIONS -> builtinMember(receiver, target.name, args)
+            in LAMBDA_COLLECTION_FUNCTIONS, in SINGLE_LAMBDA_FUNCTIONS -> builtinMember(receiver, target.name, args)
             else -> throw unresolved(target.name)
+        }
+    }
+
+    /**
+     * The value of calling a stand-in class [name] from a library: with named arguments only, e.g.
+     * `EditorTheme(background = Color.Black)`, an object that keeps them as properties, so reading them back works
+     * without the library; otherwise the stand-in itself.
+     */
+    private fun standInResult(value: Any?, name: String, args: CallArgs): Any? =
+        if (value is StandIn && name.first().isUpperCase() && args.named.isNotEmpty() && args.positional.isEmpty()) {
+            StandInObject(name, args.named)
+        } else {
+            value
+        }
+
+    /** What `ifEmpty`, `ifBlank`, `takeIf`, `takeUnless` or `getOrElse` does: give a value, or run its lambda. */
+    private sealed interface SingleLambda {
+        class Result(val value: Any?) : SingleLambda
+
+        /** Runs the lambda with [args]; its value turns into the call's value through [result]. */
+        class Run(val args: List<Any?>, val result: (Any?) -> Any? = { it }) : SingleLambda
+    }
+
+    /**
+     * Decides, as Kotlin does, whether a function from [SINGLE_LAMBDA_FUNCTIONS] runs its lambda, so the caller's
+     * evaluator can run it (composable or suspend calls are allowed in these inline lambdas).
+     */
+    private fun singleLambdaPlan(receiver: Any?, name: String, args: CallArgs): SingleLambda = when (name) {
+        "ifEmpty" -> {
+            val empty = when (receiver) {
+                is CharSequence -> receiver.isEmpty()
+                is Collection<*> -> receiver.isEmpty()
+                is Map<*, *> -> receiver.isEmpty()
+                else -> false
+            }
+            if (empty) SingleLambda.Run(emptyList()) else SingleLambda.Result(receiver)
+        }
+
+        "ifBlank" -> if (receiver is CharSequence && receiver.isBlank()) SingleLambda.Run(emptyList()) else SingleLambda.Result(receiver)
+        "takeIf" -> SingleLambda.Run(listOf(receiver)) { if (it == true) receiver else null }
+        "takeUnless" -> SingleLambda.Run(listOf(receiver)) { if (it == true) null else receiver }
+        else -> {
+            val key = args.positional.firstOrNull()
+            when {
+                receiver is List<*> && key is Int ->
+                    if (key in receiver.indices) SingleLambda.Result(receiver[key]) else SingleLambda.Run(listOf(key))
+
+                receiver is Map<*, *> ->
+                    if (receiver.containsKey(key)) SingleLambda.Result(receiver[key]) else SingleLambda.Run(emptyList())
+
+                else -> SingleLambda.Result(builtinMember(receiver, name, args))
+            }
         }
     }
 
@@ -1405,6 +1471,13 @@ public class Interpreter(
                 }
                 if (stop is Jump || stop is ErrorValue) return stop
                 showIfError(guard { builtinMember(receiver, target.name, withResults(args, target.name, items, results)) })
+            }
+
+            in SINGLE_LAMBDA_FUNCTIONS -> when (val plan = singleLambdaPlan(receiver, target.name, args)) {
+                is SingleLambda.Result -> plan.value
+                is SingleLambda.Run -> invokeComposable(fn, NoReceiver, plan.args).let {
+                    if (it is Jump || it is ErrorValue) showIfError(it) else plan.result(it)
+                }
             }
 
             else -> showIfError(fail("Unresolved reference '${target.name}'"))
@@ -2871,6 +2944,11 @@ public class Interpreter(
                 builtinMember(receiver, target.name, withResults(args, target.name, items, results))
             }
 
+            in SINGLE_LAMBDA_FUNCTIONS -> when (val plan = singleLambdaPlan(receiver, target.name, args)) {
+                is SingleLambda.Result -> plan.value
+                is SingleLambda.Run -> invokeSuspend(fn, NoReceiver, plan.args).let { if (it is Jump) it else plan.result(it) }
+            }
+
             else -> throw unresolved(target.name)
         }
     }
@@ -2886,6 +2964,7 @@ public class Interpreter(
         val text = typeText.trim().let { t -> if (t.startsWith("@")) t.substringAfter(' ') else t }
         if (value == null) return text.endsWith("?")
         if (value is StandIn) return false
+        if (value is StandInObject) return value.name == baseTypeName(text)
         if ("->" in text) return value is LambdaValue || value is FunctionRef || value is MemberRef || value is ComposableSlot || value is Function<*>
         return when (val name = baseTypeName(text)) {
             "Any" -> true
@@ -2980,6 +3059,12 @@ public class Interpreter(
             "count", "sumOf", "maxByOrNull", "minByOrNull", "sortedBy", "sortedByDescending", "groupBy", "associateWith",
             "associateBy", "joinToString", "first", "last", "firstOrNull", "lastOrNull", "find",
         )
+
+        /** Functions that run their trailing lambda once or not at all, also in the caller's evaluator. */
+        val SINGLE_LAMBDA_FUNCTIONS = setOf("ifEmpty", "ifBlank", "takeIf", "takeUnless", "getOrElse")
+
+        /** Calls that create a ViewModel or an injected object, which previews can't do. */
+        val INJECTION_CALLS = setOf("viewModel", "hiltViewModel", "koinViewModel", "koinInject", "inject", "get")
 
         /** Of [LAMBDA_COLLECTION_FUNCTIONS], those whose lambda takes the index first. */
         val INDEXED_LAMBDAS = setOf("mapIndexed", "filterIndexed")

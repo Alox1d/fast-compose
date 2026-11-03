@@ -187,6 +187,14 @@ internal class PrecomputedLambda(private val items: List<Any?>, private val resu
     }
 }
 
+/**
+ * An object of library class [name], which has no binding, built from named arguments: its [properties] read back as
+ * given and other members are stand-ins, e.g. `EditorTheme(background = Color.Black).background`.
+ */
+internal data class StandInObject(val name: String, val properties: Map<String, Any?>) {
+    override fun toString(): String = "$name(${properties.entries.joinToString { "${it.key}=${it.value}" }})"
+}
+
 /** A user class used as a value: `Screen.Home`, `Message::class`, companion access. */
 public class ClassRef internal constructor(public val decl: ClassDecl) {
     override fun toString(): String = "class ${decl.name}"

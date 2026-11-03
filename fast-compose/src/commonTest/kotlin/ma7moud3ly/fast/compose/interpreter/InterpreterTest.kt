@@ -210,6 +210,42 @@ class InterpreterTest {
     }
 
     @Test
+    fun standInObjectsKeepNamedArguments() {
+        val (result, problems) = runWithProblems(
+            """
+            import io.lib.EditorTheme
+
+            fun test(): List<Any?> {
+                val theme = EditorTheme(background = 1, dark = true)
+                val light = theme.copy(dark = false)
+                return listOf(theme.background, theme.dark, light.dark, light.background, theme is EditorTheme)
+            }
+            """,
+        )
+        assertEquals(listOf(1, true, false, 1, true), result)
+        assertEquals(1, problems.size, problems.toString())
+    }
+
+    @Test
+    fun suspendCallsInSingleLambdas() = runTest {
+        val code = """
+            suspend fun label(): String {
+                delay(1)
+                return "none"
+            }
+
+            suspend fun test(): List<Any?> = listOf(
+                "".ifEmpty { label() },
+                "x".ifEmpty { label() },
+                " ".ifBlank { label() },
+                5.takeIf { label() == "none" },
+                listOf(1).getOrElse(3) { label().length },
+            )
+        """.trimIndent()
+        assertEquals(listOf("none", "x", "none", 5, 4), interpreter(code, delayRegistry).callSuspend("test"))
+    }
+
+    @Test
     fun suspendCallsInsideCollectionLambdas() = runTest {
         val code = """
             suspend fun twice(n: Int): Int {
@@ -286,7 +322,8 @@ class InterpreterTest {
             }
             """,
         )
-        assertEquals("bg !|light|0|false|", result)
+        // Named arguments of an unbound class are kept: `background` reads back as given.
+        assertEquals("bg 1!|light|0|false|", result)
         assertEquals(2, problems.size, problems.toString())
         assertTrue(problems.all { it.isWarning && "stand-in" in it.message }, problems.toString())
     }
