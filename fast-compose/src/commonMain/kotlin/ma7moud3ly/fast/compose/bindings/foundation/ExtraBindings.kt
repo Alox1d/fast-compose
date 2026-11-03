@@ -93,6 +93,7 @@ import androidx.compose.ui.text.style.TextGeometricTransform
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 
 /** CompositionLocal, styled text, gestures, BoxWithConstraints and animated content. */
@@ -492,5 +493,14 @@ private fun Registry.transitions() {
             label = a.string("label", "Crossfade"),
         ) { state -> content(state) }
     }
-    member<Modifier>("animateContentSize") { m, _ -> m.animateContentSize() }
+    member<Modifier>("animateContentSize(animationSpec, finishedListener)") { modifier, args ->
+        val finishedListener: ((IntSize, IntSize) -> Unit)? =
+            if (args.lambda("finishedListener") == null) null else { initial, target ->
+                args.function2("finishedListener")(initial, target)
+                Unit
+            }
+        val animationSpec = args.finiteSpec<IntSize>()
+        if (animationSpec == null) modifier.animateContentSize(finishedListener = finishedListener)
+        else modifier.animateContentSize(animationSpec = animationSpec, finishedListener = finishedListener)
+    }
 }
