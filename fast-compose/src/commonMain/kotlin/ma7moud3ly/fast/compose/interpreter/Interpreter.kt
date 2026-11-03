@@ -12,11 +12,14 @@ import kotlin.time.TimeSource
 import kotlinx.coroutines.yield
 
 /** Evaluated call arguments. [trailing] is the trailing lambda, if any. */
-internal class CallArgs(
-    val positional: List<Any?>,
-    val named: Map<String, Any?> = emptyMap(),
-    val trailing: Any? = null,
-) {
+internal class CallArgs private constructor(val shape: CallShape) {
+    constructor(positional: List<Any?>, named: Map<String, Any?> = emptyMap(), trailing: Any? = null) :
+        this(CallShape(positional, named, trailing))
+
+    val positional: List<Any?> get() = shape.positional
+    val named: Map<String, Any?> get() = shape.named
+    val trailing: Any? get() = shape.trailing
+
     /** First argument matching [predicate], without copying the arguments into one list. */
     inline fun firstOrNull(predicate: (Any?) -> Boolean): Any? {
         for (value in positional) if (predicate(value)) return value
@@ -24,10 +27,12 @@ internal class CallArgs(
         return trailing?.takeIf(predicate)
     }
 
-    val shape = CallShape(positional, named, trailing)
-
     companion object {
         val Empty = CallArgs(emptyList())
+
+        fun ordered(arguments: List<EvaluatedArgument>, trailing: Any?): CallArgs =
+            if (arguments.none { it.name != null }) CallArgs(arguments.map { it.value }, trailing = trailing)
+            else CallArgs(CallShape(arguments, trailing))
     }
 }
 
@@ -293,13 +298,25 @@ public class Interpreter(
     }
 
     private fun accepts(params: List<Param>, args: CallArgs): Boolean {
-        if (params.any { it.isVararg }) return true
-        if (args.named.keys.any { n -> params.none { it.name == n } }) return false
-        val supplied =
-            args.positional.size + args.named.size + (if (args.trailing != null) 1 else 0)
-        val required = params.count { it.default == null }
-        return supplied in required..params.size
+        if (args.named.isEmpty()) {
+            var next = 0
+            var trailingUsed = false
+            params.forEachIndexed { i, p ->
+                when {
+                    p.isVararg -> next = args.positional.size
+                    next < args.positional.size -> next++
+                    i == params.lastIndex && args.trailing != null -> trailingUsed = true
+                    p.default == null -> return false
+                }
+            }
+            return next == args.positional.size && (args.trailing == null || trailingUsed)
+        }
+        val match = matchParams(params, args, "function")
+        return match.problems.isEmpty() && params.all { it.isVararg || it.default != null || it.name in match.values }
     }
+
+    private fun matchParams(params: List<Param>, args: CallArgs, owner: String): Signature.Match =
+        Signature.forParameters(owner, params.map { it.name }, params.firstOrNull { it.isVararg }?.name).match(args.shape)
 
     /** Binds arguments into [env] and returns the parameters that need their default value evaluated. */
     private fun bindParams(
@@ -308,6 +325,22 @@ public class Interpreter(
         env: Env,
         owner: String
     ): List<Param> {
+        if (args.named.isEmpty()) return bindPositionalParams(params, args, env, owner)
+        val match = matchParams(params, args, owner)
+        match.problems.firstOrNull()?.let { throw InterpreterException(it) }
+        val missing = mutableListOf<Param>()
+        for (p in params) {
+            when {
+                p.name in match.values -> env.define(p.name, match.values[p.name], mutable = false)
+                p.default != null -> missing += p
+                else -> throw InterpreterException("No value passed for parameter '${p.name}' of '$owner'")
+            }
+        }
+        return missing
+    }
+
+    /** Positional-only calls need no intermediate signature or parameter map. */
+    private fun bindPositionalParams(params: List<Param>, args: CallArgs, env: Env, owner: String): List<Param> {
         val missing = mutableListOf<Param>()
         var next = 0
         var trailingUsed = false
@@ -317,28 +350,17 @@ public class Interpreter(
                     env.define(p.name, args.positional.drop(next), mutable = false)
                     next = args.positional.size
                 }
-
-                p.name in args.named -> env.define(p.name, args.named[p.name], mutable = false)
-                next < args.positional.size -> env.define(
-                    p.name,
-                    args.positional[next++],
-                    mutable = false
-                )
-
+                next < args.positional.size -> env.define(p.name, args.positional[next++], mutable = false)
                 i == params.lastIndex && args.trailing != null -> {
                     env.define(p.name, args.trailing, mutable = false)
                     trailingUsed = true
                 }
-
                 p.default != null -> missing += p
                 else -> throw InterpreterException("No value passed for parameter '${p.name}' of '$owner'")
             }
         }
-        if (next < args.positional.size || (args.trailing != null && !trailingUsed)) throw InterpreterException(
-            "Too many arguments for '$owner'"
-        )
-        args.named.keys.firstOrNull { n -> params.none { it.name == n } }?.let {
-            throw InterpreterException("Cannot find a parameter with this name: $it")
+        if (next < args.positional.size || (args.trailing != null && !trailingUsed)) {
+            throw InterpreterException("Too many arguments for '$owner'")
         }
         return missing
     }
@@ -463,14 +485,10 @@ public class Interpreter(
             val root = scopeOf(decl).root
             decl.enumEntries.mapIndexed { i, entry ->
                 val value = EnumValue(decl, entry.name, i)
-                val positional = mutableListOf<Any?>()
-                val named = mutableMapOf<String, Any?>()
-                for (arg in entry.args) {
-                    val argName = arg.name
-                    if (argName != null) named[argName] =
-                        eval(arg.value, root) else positional += eval(arg.value, root)
+                val arguments = entry.args.map { arg ->
+                    EvaluatedArgument(arg.name, eval(arg.value, root))
                 }
-                initialize(value, CallArgs(positional, named))
+                initialize(value, CallArgs.ordered(arguments, trailing = null))
                 value
             }
         }
@@ -723,15 +741,16 @@ public class Interpreter(
 
     private fun copy(value: ObjectValue, args: CallArgs): ObjectValue {
         val params = value.decl.constructorParams.map { it.param.name }
+        val match = Signature.forParameters("copy", params, null).match(args.shape)
+        match.problems.firstOrNull()?.let { throw InterpreterException(it) }
         val named = params.associateWith { value.read(it) }.toMutableMap()
-        args.positional.forEachIndexed { i, v -> named[params[i]] = v }
-        named.putAll(args.named)
+        named.putAll(match.values)
         return instantiate(value.decl, CallArgs(emptyList(), named))
     }
 
     /** Matches call arguments to a binding's [signature]; problems such as unknown parameter names are reported. */
     private fun toArgs(args: CallArgs, env: Env, signature: Signature): Args {
-        val match = signature.match(args.positional, args.named, args.trailing)
+        val match = signature.match(args.shape)
         for (problem in match.problems) report(problem)
         return Args(signature, match.values, env.receivers, this)
     }
@@ -1686,21 +1705,20 @@ public class Interpreter(
 
     private fun evalCall(call: Call, env: Env): Any? {
         val label = calleeName(call.callee)
-        val positional = mutableListOf<Any?>()
-        val named = mutableMapOf<String, Any?>()
+        val arguments = mutableListOf<EvaluatedArgument>()
         for (arg in call.args) {
             val value =
                 arg.value.let { if (it is Lambda) LambdaValue(it, env, label) else eval(it, env) }
             if (value is Jump) return value
             val name = arg.name
             when {
-                name != null -> named[name] = value
-                arg.isSpread -> positional.addAll(spread(value))
-                else -> positional += value
+                name != null -> arguments += EvaluatedArgument(name, value)
+                arg.isSpread -> spread(value).forEach { arguments += EvaluatedArgument(null, it) }
+                else -> arguments += EvaluatedArgument(null, value)
             }
         }
         val args =
-            CallArgs(positional, named, call.trailingLambda?.let { LambdaValue(it, env, label) })
+            CallArgs.ordered(arguments, call.trailingLambda?.let { LambdaValue(it, env, label) })
         locate(call.span, env)
         return when (val callee = call.callee) {
             is Ident -> invokeTarget(resolveCall(callee.name, args, env), args, callee.name)
@@ -1728,21 +1746,20 @@ public class Interpreter(
     @Composable
     private fun evalCallC(call: Call, env: Env): Any? {
         val label = calleeName(call.callee)
-        val positional = mutableListOf<Any?>()
-        val named = mutableMapOf<String, Any?>()
+        val arguments = mutableListOf<EvaluatedArgument>()
         for (arg in call.args) {
             val argExpr = arg.value
             val value =
                 if (argExpr is Lambda) LambdaValue(argExpr, env, label) else evalC(argExpr, env)
             val name = arg.name
             when {
-                name != null -> named[name] = value
-                arg.isSpread && !isStop(value) -> positional.addAll(spread(value))
-                else -> positional += value
+                name != null -> arguments += EvaluatedArgument(name, value)
+                arg.isSpread && !isStop(value) -> spread(value).forEach { arguments += EvaluatedArgument(null, it) }
+                else -> arguments += EvaluatedArgument(null, value)
             }
         }
         val args =
-            CallArgs(positional, named, call.trailingLambda?.let { LambdaValue(it, env, label) })
+            CallArgs.ordered(arguments, call.trailingLambda?.let { LambdaValue(it, env, label) })
         args.firstOrNull { isStop(it) }?.let { return it }
         locate(call.span, env)
         return when (val callee = call.callee) {
@@ -2209,8 +2226,7 @@ public class Interpreter(
 
     private suspend fun evalCallS(call: Call, env: Env): Any? {
         val label = calleeName(call.callee)
-        val positional = mutableListOf<Any?>()
-        val named = mutableMapOf<String, Any?>()
+        val arguments = mutableListOf<EvaluatedArgument>()
         for (arg in call.args) {
             val argExpr = arg.value
             val value =
@@ -2218,13 +2234,13 @@ public class Interpreter(
             if (value is Jump) return value
             val name = arg.name
             when {
-                name != null -> named[name] = value
-                arg.isSpread -> positional.addAll(spread(value))
-                else -> positional += value
+                name != null -> arguments += EvaluatedArgument(name, value)
+                arg.isSpread -> spread(value).forEach { arguments += EvaluatedArgument(null, it) }
+                else -> arguments += EvaluatedArgument(null, value)
             }
         }
         val args =
-            CallArgs(positional, named, call.trailingLambda?.let { LambdaValue(it, env, label) })
+            CallArgs.ordered(arguments, call.trailingLambda?.let { LambdaValue(it, env, label) })
         locate(call.span, env)
         return when (val callee = call.callee) {
             is Ident -> invokeTargetS(resolveCall(callee.name, args, env), args, callee.name)
